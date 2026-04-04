@@ -23,7 +23,7 @@ export class JaspelService {
         totalTidakLangsung += d.tidakLangsung;
         totalLangsung += d.langsung;
     });
-
+ 
     return { 
         pendapatan: totalBlud, 
         jaspel: totalJaspel60, 
@@ -33,6 +33,15 @@ export class JaspelService {
         items: detail
     };
   }
+
+  private getPphPercent(golongan: string | null | undefined): number {
+    if (!golongan || golongan === '-') return 0;
+    const g = golongan.toUpperCase();
+    if (g.startsWith('IV')) return 15;
+    if (g.startsWith('III')) return 5;
+    return 0;
+  }
+
 
   async calculateBobotKapitasi(periode: string) {
     const listPegawai = await this.pegawaiRepo.findPegawaiWithKehadiran(periode);
@@ -108,7 +117,7 @@ export class JaspelService {
 
         return bobotList.map(b => {
             const ov = overrides.find(o => o.pegawaiId === b.id);
-            const defaultPphPercent = b.golongan?.startsWith('IV') ? 15 : b.golongan?.startsWith('III') ? 5 : 0;
+            const defaultPphPercent = this.getPphPercent(b.golongan);
 
             const calcJaspelNK = (b.bobotNonKapitasi / (totalBobotNonKapAll || 1)) * totalTlnonKap;
             const jaspelNK = ov?.print60NonKapJumlah ?? calcJaspelNK;
@@ -180,12 +189,12 @@ export class JaspelService {
             });
 
             const jaspelNK = ov?.print40NonKapJumlah ?? sumNK;
-            const pphPercentNK = b.golongan?.startsWith('IV') ? 15 : b.golongan?.startsWith('III') ? 5 : 0;
+            const pphPercentNK = this.getPphPercent(b.golongan);
             const pphNK = ov?.print40NonKapPphNominal ?? (jaspelNK * (pphPercentNK / 100));
             const bersihNK = ov?.print40NonKapBersih ?? (jaspelNK - pphNK);
 
             const jaspelPad = ov?.print40PadJumlah ?? sumPad;
-            const pphPercentPad = b.golongan?.startsWith('IV') ? 15 : b.golongan?.startsWith('III') ? 5 : 0;
+            const pphPercentPad = this.getPphPercent(b.golongan);
             const pphPad = ov?.print40PadPphNominal ?? (jaspelPad * (pphPercentPad / 100));
             const bersihPad = ov?.print40PadBersih ?? (jaspelPad - pphPad);
 
@@ -229,7 +238,7 @@ export class JaspelService {
           const totalL = lNK + lPad;
 
           const totalJaspel = ov?.rekapTotalJaspel ?? (totalTL + totalL);
-          const pphPercent = ov?.rekapPphPersen ?? (p.golongan === 'IV' ? 15 : p.golongan === 'III' ? 5 : 0);
+          const pphPercent = ov?.rekapPphPersen ?? this.getPphPercent(p.golongan);
           const pphNominal = ov?.rekapPphNominal ?? (totalJaspel * (pphPercent / 100));
           const takeHomePay = ov?.rekapTakeHomePay ?? (totalJaspel - pphNominal);
 
@@ -371,6 +380,48 @@ export class JaspelService {
         summary.padMurni.langsung += d.langsung;
       }
     });
+
+    return summary;
+  }
+
+  async getDashboardSummary(periode: string) {
+    const detail = await this.keuanganRepo.getKeuanganDetail(periode);
+    const listPegawai = await this.pegawaiRepo.findAll();
+    const rekapan = await this.calculateRekapan(periode);
+
+    const summary = {
+      totalPegawai: listPegawai.length,
+      totalJaspelPad: 0,
+      nonKapitasi: { total: 0, tidakLangsung: 0, langsung: 0 },
+      padMurni: { total: 0, tidakLangsung: 0, langsung: 0 },
+      topUnits: [] as { name: string, value: number }[],
+      topEarners: rekapan.sort((a, b) => b.takeHomePay - a.takeHomePay).slice(0, 5)
+    };
+
+    const unitMap: Record<string, number> = {};
+
+    detail.forEach(d => {
+      summary.totalJaspelPad += d.jaspel60;
+      
+      if (d.jenisPendapatan === 'Non Kapitasi') {
+        summary.nonKapitasi.total += d.jaspel60;
+        summary.nonKapitasi.tidakLangsung += d.tidakLangsung;
+        summary.nonKapitasi.langsung += d.langsung;
+      } else if (d.jenisPendapatan === 'PAD Murni') {
+        summary.padMurni.total += d.jaspel60;
+        summary.padMurni.tidakLangsung += d.tidakLangsung;
+        summary.padMurni.langsung += d.langsung;
+      }
+
+      if (d.namaLayanan) {
+        unitMap[d.namaLayanan] = (unitMap[d.namaLayanan] || 0) + d.jumlahBlud;
+      }
+    });
+
+    summary.topUnits = Object.entries(unitMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
 
     return summary;
   }

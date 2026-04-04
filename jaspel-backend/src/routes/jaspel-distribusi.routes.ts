@@ -40,6 +40,13 @@ app.get("/unit-summary/:unitName/:periode", async (c) => {
   return c.json(await service.getUnitFinancialSummary(unitName, periode));
 });
 
+app.get("/dashboard-summary/:periode", async (c) => {
+  const { periode } = c.req.param();
+  const db = getDb(c.env.DB);
+  const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
+  return c.json(await service.getDashboardSummary(periode));
+});
+
 // PUT Save Overrides (for all report pages)
 const updateSchema = z.object({
   pegawaiId: z.string(),

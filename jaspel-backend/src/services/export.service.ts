@@ -30,8 +30,8 @@ export class ExportService {
         jumlahTL: row.jumlahTL,
         jumlahLangsung: row.jumlahLangsung,
         totalJaspel: row.totalJaspel,
-        pphPercent: `${(row.pphPercent * 100).toFixed(0)}%`,
-        pph: row.pph,
+        pphPercent: `${row.pphPercent}%`,
+        pph: row.pphNominal,
         jumlahBersih: row.jumlahBersih
       });
     });
