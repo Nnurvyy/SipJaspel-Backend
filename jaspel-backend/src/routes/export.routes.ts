@@ -8,7 +8,7 @@ import { Bindings } from "../utils/types";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-app.get("/export/rekap/:periode", async (c) => {
+app.get("/rekap/:periode", async (c) => {
   const { periode } = c.req.param();
   const db = getDb(c.env.DB);
   
@@ -21,6 +21,23 @@ app.get("/export/rekap/:periode", async (c) => {
 
   c.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   c.header('Content-Disposition', `attachment; filename="Rekap_Jaspel_${periode}.xlsx"`);
+  
+  return c.body(buffer);
+});
+
+app.get("/all/:periode", async (c) => {
+  const { periode } = c.req.param();
+  const db = getDb(c.env.DB);
+  
+  const keuanganRepo = new KeuanganRepository(db);
+  const pegawaiRepo = new PegawaiRepository(db);
+  const jaspelService = new JaspelService(keuanganRepo, pegawaiRepo);
+  const exportService = new ExportService(jaspelService);
+
+  const buffer = await exportService.exportAllToExcel(periode);
+
+  c.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  c.header('Content-Disposition', `attachment; filename="Jaspel_Majalengka_${periode}.xlsx"`);
   
   return c.body(buffer);
 });

@@ -27,7 +27,7 @@ app.route('/api/bobot-staff', bobotStaffRoutes)
 app.route('/api/pagu-unit', paguUnitRoutes)
 app.route('/api/keuangan-detail', keuanganDetailRoutes)
 app.route('/api/jaspel-distribusi', jaspelDistribusiRoutes)
-app.route('/api', exportRoutes)
+app.route('/api/export', exportRoutes)
 
 app.get('/', (c) => {
   return c.text('Jaspel Backend is Running!')
