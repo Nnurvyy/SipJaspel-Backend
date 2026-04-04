@@ -15,6 +15,13 @@
       "when": 1775267852160,
       "tag": "0001_update_schema_jaspel_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1775301782209,
+      "tag": "0002_cheerful_king_cobra",
+      "breakpoints": true
     }
   ]
 }

@@ -9,7 +9,7 @@ import {
   unitPelayanan,
   bobotStaff,
 } from "../db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { Bindings } from "../utils/types";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -49,7 +49,7 @@ app.get("/:unitKey/:periode", async (c) => {
       u.nama.toLowerCase().replace(/\s+/g, "-") === unitKey
   );
 
-  const listPegawai = await db.select().from(pegawai);
+  const listPegawai = await db.select().from(pegawai).orderBy(asc(pegawai.urutan));
   const listBobot = await db.select().from(bobotStaff);
 
   let kinerjaPegawaiList: any[] = [];

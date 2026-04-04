@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { getDb } from "../db";
 import { bobotStaff, pegawai } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { Bindings } from "../utils/types";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -32,7 +32,7 @@ function getPoinRisiko(risiko: string | null | undefined): number {
 app.get("/", async (c) => {
   const db = getDb(c.env.DB);
 
-  const listPegawai = await db.select().from(pegawai);
+  const listPegawai = await db.select().from(pegawai).orderBy(asc(pegawai.urutan));
   const listBobot = await db.select().from(bobotStaff);
 
   const result = listPegawai.map((p, idx) => {

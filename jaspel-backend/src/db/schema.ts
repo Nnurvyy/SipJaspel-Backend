@@ -28,6 +28,7 @@ export const pegawai = sqliteTable("pegawai", {
   poinRangkapTugas: real("poin_rangkap_tugas").notNull().default(0),
   poinMasaKerja: real("poin_masa_kerja").notNull().default(0),
   pphPersen: real("pph_persen"),
+  urutan: integer("urutan").default(0),
 });
 
 export const unitPelayanan = sqliteTable("unit_pelayanan", {
