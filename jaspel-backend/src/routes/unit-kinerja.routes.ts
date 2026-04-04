@@ -2,40 +2,97 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { getDb } from "../db";
-import { kinerjaPegawai, pegawai, unitPelayanan, pendapatanUnit } from "../db/schema";
+import {
+  kinerjaPegawai,
+  kinerjaTindakanPeran,
+  pegawai,
+  unitPelayanan,
+  bobotStaff,
+} from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { Bindings } from "../utils/types";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// GET kinerja for a unit in a periode, merged with pegawai data
-// Route: GET /api/unit-kinerja/:unitKey/:periode
+// Helper: Hitung poin jabatan unit
+function getPoinJabatanUnit(jabatan: string | null | undefined): number {
+  if (!jabatan) return 0;
+  if (jabatan === "PJ") return 3;
+  if (jabatan === "Koordinator") return 2;
+  if (jabatan === "Tidak memiliki jabatan struktural") return 1;
+  return 0;
+}
+
+// Helper: Hitung poin risiko
+function getPoinRisiko(risiko: string | null | undefined): number {
+  if (!risiko) return 0;
+  if (risiko === "Sangat Tinggi") return 5;
+  if (risiko === "Tinggi") return 4;
+  if (risiko === "Sedang") return 3;
+  if (risiko === "Rendah") return 2;
+  if (risiko === "Sangat Rendah") return 1;
+  return 0;
+}
+
+// GET /api/unit-kinerja/:unitKey/:periode
+// Kembalikan semua pegawai + kinerja tindakan per peran (normalized) + bobot dari master bobot_staff
 app.get("/:unitKey/:periode", async (c) => {
   const { unitKey, periode } = c.req.param();
   const db = getDb(c.env.DB);
 
-  // Find unit
+  // Cari unit
   const allUnits = await db.select().from(unitPelayanan);
-  const unit = allUnits.find(u => u.id === `unit_${unitKey}` || u.id === unitKey || u.nama.toLowerCase().replace(/\s+/g, '-') === unitKey);
+  const unit = allUnits.find(
+    (u) =>
+      u.id === `unit_${unitKey}` ||
+      u.id === unitKey ||
+      u.nama.toLowerCase().replace(/\s+/g, "-") === unitKey
+  );
 
   const listPegawai = await db.select().from(pegawai);
-  
+  const listBobot = await db.select().from(bobotStaff);
+
   let kinerjaPegawaiList: any[] = [];
-  let padData = { nonKap: 0, padMurni: 0 };
+  let tindakanPeranList: any[] = [];
 
   if (unit) {
-    kinerjaPegawaiList = await db.select().from(kinerjaPegawai)
-      .where(and(eq(kinerjaPegawai.periode, periode), eq(kinerjaPegawai.unitId, unit.id)));
-    
-    const pendapatan = await db.select().from(pendapatanUnit)
-      .where(and(eq(pendapatanUnit.periode, periode), eq(pendapatanUnit.unitId, unit.id)));
-    if (pendapatan.length > 0) {
-      padData = { nonKap: pendapatan[0].jumlahNonKapitasi, padMurni: pendapatan[0].padRanap };
-    }
+    kinerjaPegawaiList = await db
+      .select()
+      .from(kinerjaPegawai)
+      .where(
+        and(
+          eq(kinerjaPegawai.periode, periode),
+          eq(kinerjaPegawai.unitId, unit.id)
+        )
+      );
+
+    // Ambil semua tindakan per peran untuk unit + periode ini
+    tindakanPeranList = await db
+      .select()
+      .from(kinerjaTindakanPeran)
+      .where(eq(kinerjaTindakanPeran.unitId, unit.id));
   }
 
   const result = listPegawai.map((p, idx) => {
-    const kinerja = kinerjaPegawaiList.find(k => k.pegawaiId === p.id);
+    const kinerja = kinerjaPegawaiList.find((k) => k.pegawaiId === p.id);
+    const bobotData = listBobot.find((b) => b.pegawaiId === p.id);
+    const poinJabatan = getPoinJabatanUnit(bobotData?.jabatanUnit);
+    const poinRisiko = getPoinRisiko(bobotData?.risiko);
+    const bobot = poinJabatan + poinRisiko;
+
+    // Ambil tindakan per peran & adjusted untuk pegawai + unit ini
+    const tindakanMap: Record<string, number> = {};
+    const adjustedMap: Record<string, number | null> = {};
+    if (kinerja) {
+      const tindakanPegawai = tindakanPeranList.filter(
+        (t) => t.kinerjaPegawaiId === kinerja.id
+      );
+      tindakanPegawai.forEach((t) => {
+        tindakanMap[t.peranKey] = t.jumlahTindakan;
+        adjustedMap[t.peranKey] = t.adjusted;
+      });
+    }
+
     return {
       id: kinerja?.id || null,
       no: idx + 1,
@@ -43,61 +100,27 @@ app.get("/:unitKey/:periode", async (c) => {
       nama: p.nama,
       golongan: p.golongan,
       jenisKetenagaan: p.jenisKetenagaan,
-      bobot: kinerja?.bobot ?? 0,
-      jumlahTindakanDokter: (kinerja as any)?.jumlahTindakanDokter ?? 0,
-      jumlahTindakanPerawat: (kinerja as any)?.jumlahTindakanPerawat ?? 0,
-      jumlahKonsultasiDokter: (kinerja as any)?.jumlahKonsultasiDokter ?? 0,
-      jumlahJaga: (kinerja as any)?.jumlahJaga ?? 0,
-      jumlahBulin: (kinerja as any)?.jumlahBulin ?? 0,
-      jumlahRujukan: (kinerja as any)?.jumlahRujukan ?? 0,
-      jumlahPersalinan: (kinerja as any)?.jumlahPersalinan ?? 0,
-      jumlahManajemenPoned: (kinerja as any)?.jumlahManajemenPoned ?? 0,
-      jumlahKonsultasiPetugas: (kinerja as any)?.jumlahKonsultasiPetugas ?? 0,
-      pointPengelolaBlud: kinerja?.pointPengelolaBlud ?? 0,
-      jaspelDokter: kinerja?.jaspelDokter ?? 0,
-      jaspelPerawat: kinerja?.jaspelPerawat ?? 0,
-      jaspelBidanJaga: kinerja?.jaspelBidanJaga ?? 0,
-      jaspelBidanAsalBulin: kinerja?.jaspelBidanAsalBulin ?? 0,
-      jaspelPendampingRujukan: kinerja?.jaspelPendampingRujukan ?? 0,
-      jaspelPenolongPersalinan: kinerja?.jaspelPenolongPersalinan ?? 0,
-      jaspelManajemenPoned: kinerja?.jaspelManajemenPoned ?? 0,
-      jaspelPetugas: kinerja?.jaspelPetugas ?? 0,
-      jaspelAtlm: kinerja?.jaspelAtlm ?? 0,
-      jaspelPengelola: kinerja?.jaspelPengelola ?? 0,
-      totalJaspelNonKap: 0, // calculated on frontend
-      totalJaspelPadMurni: 0,
-      totalJaspel: 0,
+      bobot,
+      tindakanPeran: tindakanMap, // { dokter: 12, perawat: 5, ... }
+      adjustedPeran: adjustedMap,  // { dokter: 120, ... }
     };
   });
 
-  return c.json({ pegawai: result, padData, unitId: unit?.id || null, unitNama: unit?.nama || unitKey });
+  return c.json({
+    pegawai: result,
+    unitId: unit?.id || null,
+    unitNama: unit?.nama || unitKey,
+  });
 });
 
-// PUT upsert kinerja per pegawai per unit
+// PUT /api/unit-kinerja/:periode — Upsert kinerja + tindakan per peran
 const updateSchema = z.object({
   pegawaiId: z.string(),
   unitId: z.string(),
-  bobot: z.coerce.number().optional(),
-  jumlahTindakanDokter: z.coerce.number().optional(),
-  jumlahTindakanPerawat: z.coerce.number().optional(),
-  jumlahKonsultasiDokter: z.coerce.number().optional(),
-  jumlahJaga: z.coerce.number().optional(),
-  jumlahBulin: z.coerce.number().optional(),
-  jumlahRujukan: z.coerce.number().optional(),
-  jumlahPersalinan: z.coerce.number().optional(),
-  jumlahManajemenPoned: z.coerce.number().optional(),
-  jumlahKonsultasiPetugas: z.coerce.number().optional(),
-  pointPengelolaBlud: z.coerce.number().optional(),
-  jaspelDokter: z.coerce.number().optional(),
-  jaspelPerawat: z.coerce.number().optional(),
-  jaspelBidanJaga: z.coerce.number().optional(),
-  jaspelBidanAsalBulin: z.coerce.number().optional(),
-  jaspelPendampingRujukan: z.coerce.number().optional(),
-  jaspelPenolongPersalinan: z.coerce.number().optional(),
-  jaspelManajemenPoned: z.coerce.number().optional(),
-  jaspelPetugas: z.coerce.number().optional(),
-  jaspelAtlm: z.coerce.number().optional(),
-  jaspelPengelola: z.coerce.number().optional(),
+  // tindakanPeran: map peranKey -> jumlahTindakan
+  tindakanPeran: z.record(z.string(), z.coerce.number()).optional().default({}),
+  // adjustedPeran: map peranKey -> manual adjusted value
+  adjustedPeran: z.record(z.string(), z.coerce.number().nullable()).optional().default({}),
 });
 
 app.put("/:periode", zValidator("json", updateSchema), async (c) => {
@@ -105,39 +128,68 @@ app.put("/:periode", zValidator("json", updateSchema), async (c) => {
   const body = c.req.valid("json");
   const db = getDb(c.env.DB);
 
-  const existing = await db.select().from(kinerjaPegawai)
-    .where(and(
-      eq(kinerjaPegawai.pegawaiId, body.pegawaiId),
-      eq(kinerjaPegawai.periode, periode),
-      eq(kinerjaPegawai.unitId, body.unitId)
-    )).limit(1);
+  // Upsert kinerja_pegawai (record induk)
+  const existing = await db
+    .select()
+    .from(kinerjaPegawai)
+    .where(
+      and(
+        eq(kinerjaPegawai.pegawaiId, body.pegawaiId),
+        eq(kinerjaPegawai.periode, periode),
+        eq(kinerjaPegawai.unitId, body.unitId)
+      )
+    )
+    .limit(1);
 
-  const values = {
-    bobot: body.bobot ?? 0,
-    jumlahTindakan: (body.jumlahTindakanDokter ?? 0) + (body.jumlahTindakanPerawat ?? 0),
-    jaspelDokter: body.jaspelDokter ?? 0,
-    jaspelPerawat: body.jaspelPerawat ?? 0,
-    jaspelBidanJaga: body.jaspelBidanJaga ?? 0,
-    jaspelBidanAsalBulin: body.jaspelBidanAsalBulin ?? 0,
-    jaspelPendampingRujukan: body.jaspelPendampingRujukan ?? 0,
-    jaspelPenolongPersalinan: body.jaspelPenolongPersalinan ?? 0,
-    jaspelManajemenPoned: body.jaspelManajemenPoned ?? 0,
-    jaspelPetugas: body.jaspelPetugas ?? 0,
-    jaspelAtlm: body.jaspelAtlm ?? 0,
-    jaspelPengelola: body.jaspelPengelola ?? 0,
-    pointPengelolaBlud: body.pointPengelolaBlud ?? 0,
-  };
-
+  let kinerjaId: string;
   if (existing.length > 0) {
-    await db.update(kinerjaPegawai).set(values).where(eq(kinerjaPegawai.id, existing[0].id));
+    kinerjaId = existing[0].id;
+    await db
+      .update(kinerjaPegawai)
+      .set({ jumlahTindakan: 0 }) // legacy field, keep at 0
+      .where(eq(kinerjaPegawai.id, kinerjaId));
   } else {
+    kinerjaId = `kinerja_${body.pegawaiId}_${body.unitId}_${periode}`;
     await db.insert(kinerjaPegawai).values({
-      id: `kinerja_${body.pegawaiId}_${body.unitId}_${periode}`,
+      id: kinerjaId,
       periode,
       pegawaiId: body.pegawaiId,
       unitId: body.unitId,
-      ...values,
+      jumlahTindakan: 0,
     });
+  }
+
+  // Upsert tindakan per peran (normalized)
+  for (const [peranKey, jumlah] of Object.entries(body.tindakanPeran)) {
+    const existingTindakan = await db
+      .select()
+      .from(kinerjaTindakanPeran)
+      .where(
+        and(
+          eq(kinerjaTindakanPeran.kinerjaPegawaiId, kinerjaId),
+          eq(kinerjaTindakanPeran.unitId, body.unitId),
+          eq(kinerjaTindakanPeran.peranKey, peranKey)
+        )
+      )
+      .limit(1);
+
+    const adjValue = body.adjustedPeran[peranKey] !== undefined ? body.adjustedPeran[peranKey] : null;
+
+    if (existingTindakan.length > 0) {
+      await db
+        .update(kinerjaTindakanPeran)
+        .set({ jumlahTindakan: jumlah, adjusted: adjValue })
+        .where(eq(kinerjaTindakanPeran.id, existingTindakan[0].id));
+    } else {
+      await db.insert(kinerjaTindakanPeran).values({
+        id: `tindakan_${kinerjaId}_${peranKey}`,
+        kinerjaPegawaiId: kinerjaId,
+        unitId: body.unitId,
+        peranKey,
+        jumlahTindakan: jumlah,
+        adjusted: adjValue,
+      });
+    }
   }
 
   return c.json({ success: true });

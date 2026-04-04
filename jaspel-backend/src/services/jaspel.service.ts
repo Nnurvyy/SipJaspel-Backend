@@ -8,190 +8,370 @@ export class JaspelService {
   ) {}
 
   async calculateKeuanganGlobal(periode: string) {
-    const dataKeuangan = await this.keuanganRepo.getKeuanganByPeriode(periode);
-    const pendapatan = dataKeuangan ? dataKeuangan.jumlahPendapatanBlud : 0;
+    const detail = await this.keuanganRepo.getKeuanganDetail(periode);
     
-    const jaspel = pendapatan * 0.6;
-    const operasional = pendapatan * 0.4;
-    const tidakLangsung = jaspel * 0.6;
-    const langsung = jaspel * 0.4;
+    let totalBlud = 0;
+    let totalJaspel60 = 0;
+    let totalOperasional40 = 0;
+    let totalTidakLangsung = 0;
+    let totalLangsung = 0;
 
-    return { pendapatan, jaspel, operasional, tidakLangsung, langsung };
+    detail.forEach(d => {
+        totalBlud += d.jumlahBlud;
+        totalJaspel60 += d.jaspel60;
+        totalOperasional40 += d.operasional40;
+        totalTidakLangsung += d.tidakLangsung;
+        totalLangsung += d.langsung;
+    });
+
+    return { 
+        pendapatan: totalBlud, 
+        jaspel: totalJaspel60, 
+        operasional: totalOperasional40, 
+        tidakLangsung: totalTidakLangsung, 
+        langsung: totalLangsung,
+        items: detail
+    };
   }
 
   async calculateBobotKapitasi(periode: string) {
     const listPegawai = await this.pegawaiRepo.findPegawaiWithKehadiran(periode);
+    const struktur = await this.pegawaiRepo.getStruktur();
     
     return listPegawai.map(p => {
       const hadirInfo = p.kehadiran;
+
+      const countInStruktur = struktur.filter(s => s.pegawaiId === p.id).length;
+      let calcPoinTJ = 0;
+      if (countInStruktur === 1) calcPoinTJ = 10;
+      else if (countInStruktur === 2) calcPoinTJ = 20;
+      else if (countInStruktur > 2) calcPoinTJ = 30;
+      const poinTanggungJawab = hadirInfo?.poinTanggungJawab ?? calcPoinTJ;
+
+      const poinKetenagaan = hadirInfo?.poinKetenagaan ?? (p.poinKetenagaan || 0);
+      const rangkapTugasAdm = hadirInfo?.rangkapTugasAdm ?? 0;
+
+      const lamaMasaKerja = p.lamaMasaKerja || 0;
+      let calcPoinMK = 2; // < 6
+      if (lamaMasaKerja >= 26) calcPoinMK = 25;
+      else if (lamaMasaKerja >= 21) calcPoinMK = 20;
+      else if (lamaMasaKerja >= 16) calcPoinMK = 15;
+      else if (lamaMasaKerja >= 11) calcPoinMK = 10;
+      else if (lamaMasaKerja >= 6) calcPoinMK = 5;
+      const poinMasaKerja = hadirInfo?.poinMasaKerja ?? calcPoinMK;
+
       let prosentaseKehadiran = 0;
       if (hadirInfo && hadirInfo.hariKerja > 0) {
         prosentaseKehadiran = hadirInfo.hariMasukKerja / hadirInfo.hariKerja;
       }
+      const finalProsentase = hadirInfo?.prosentaseKehadiran ?? prosentaseKehadiran;
 
-      const jumlahPoin = p.poinTanggungJawab + p.poinKetenagaan + p.poinRangkapTugas + p.poinMasaKerja;
-      const bobot = jumlahPoin * prosentaseKehadiran;
+      const jumlahPoinKapitasi = hadirInfo?.jumlahPoinKapitasi ?? (poinTanggungJawab + poinKetenagaan + rangkapTugasAdm + calcPoinMK);
+      const jumlahPoinNonKapitasi = hadirInfo?.jumlahPoinNonKapitasi ?? (poinKetenagaan + rangkapTugasAdm + calcPoinMK);
+      
+      const bobotKapitasi = hadirInfo?.bobotKapitasi ?? (jumlahPoinKapitasi * finalProsentase);
+      const bobotNonKapitasi = hadirInfo?.bobotNonKapitasi ?? (jumlahPoinNonKapitasi * finalProsentase);
 
       return {
         id: p.id,
         nama: p.nama,
         nip: p.nip,
         golongan: p.golongan,
-        prosentaseKehadiran,
-        jumlahPoin,
-        bobot
+        jenisKetenagaan: p.jenisKetenagaan,
+        countInStruktur,
+        poinTanggungJawab,
+        poinKetenagaan,
+        rangkapTugasAdm,
+        lamaMasaKerja,
+        poinMasaKerja,
+        hariMasukKerja: hadirInfo?.hariMasukKerja || 0,
+        hariKerja: hadirInfo?.hariKerja || 0,
+        prosentaseKehadiran: finalProsentase,
+        jumlahPoinKapitasi,
+        jumlahPoinNonKapitasi,
+        bobotKapitasi,
+        bobotNonKapitasi
       };
     });
   }
 
+  async calculatePrint60TidakLangsung(periode: string) {
+      try {
+        const bobotList = await this.calculateBobotKapitasi(periode);
+        const keuDetail = await this.keuanganRepo.getKeuanganDetail(periode).catch(() => []);
+        const overrides = await this.pegawaiRepo.getJaspelDistribusi(periode).catch(() => []);
+
+        const totalTlnonKap = keuDetail.filter(d => d.jenisPendapatan === 'Non Kapitasi').reduce((a, b) => a + b.tidakLangsung, 0);
+        const totalTlPad = keuDetail.filter(d => d.jenisPendapatan === 'PAD Murni').reduce((a, b) => a + b.tidakLangsung, 0);
+
+        const totalBobotNonKapAll = bobotList.reduce((acc, curr) => acc + curr.bobotNonKapitasi, 0);
+
+        return bobotList.map(b => {
+            const ov = overrides.find(o => o.pegawaiId === b.id);
+            const defaultPphPercent = b.golongan?.startsWith('IV') ? 15 : b.golongan?.startsWith('III') ? 5 : 0;
+
+            const calcJaspelNK = (b.bobotNonKapitasi / (totalBobotNonKapAll || 1)) * totalTlnonKap;
+            const jaspelNK = ov?.print60NonKapJumlah ?? calcJaspelNK;
+            const pphPercentNK = ov?.print60NonKapPphPersen ?? defaultPphPercent;
+            const pphNominalNK = ov?.print60NonKapPphNominal ?? (jaspelNK * (pphPercentNK / 100));
+            const bersihNK = ov?.print60NonKapBersih ?? (jaspelNK - pphNominalNK);
+
+            const calcJaspelPad = (b.bobotNonKapitasi / (totalBobotNonKapAll || 1)) * totalTlPad;
+            const jaspelPad = ov?.print60PadJumlah ?? calcJaspelPad;
+            const pphPercentPad = ov?.print60PadPphPersen ?? defaultPphPercent;
+            const pphNominalPad = ov?.print60PadPphNominal ?? (jaspelPad * (pphPercentPad / 100));
+            const bersihPad = ov?.print60PadBersih ?? (jaspelPad - pphNominalPad);
+
+            return {
+               id: b.id,
+               nama: b.nama,
+               golongan: b.golongan,
+               bobot: b.bobotNonKapitasi,
+               jaspelNonKap: jaspelNK,
+               pphPercentNonKap: pphPercentNK,
+               pphNonKap: pphNominalNK,
+               bersihNonKap: bersihNK,
+               jaspelPadMurni: jaspelPad,
+               pphPercentPad: pphPercentPad,
+               pphPadMurni: pphNominalPad,
+               bersihPadMurni: bersihPad,
+               isOverride: !!ov,
+               // Additional Employment Data
+               jenisKetenagaanPoin: b.poinKetenagaan,
+               masaKerja: b.lamaMasaKerja,
+               rangkapTugasAdm: b.rangkapTugasAdm,
+               hariMasukKerja: b.hariMasukKerja,
+               hariKerja: b.hariKerja,
+               prosentaseKehadiran: b.prosentaseKehadiran,
+               jumlahPoin: b.jumlahPoinKapitasi
+            }
+        });
+      } catch (e) {
+        console.error("Error in calculatePrint60TidakLangsung", e);
+        return [];
+      }
+  }
+
+  async calculatePrint40Langsung(periode: string) {
+      try {
+        const bobotList = await this.calculateBobotKapitasi(periode);
+        const units = await this.calculateUnitPelayanan(periode).catch(() => []);
+        const overrides = await this.pegawaiRepo.getJaspelDistribusi(periode).catch(() => []);
+
+        return bobotList.map(b => {
+            const ov = overrides.find(o => o.pegawaiId === b.id);
+            
+            let sumNK = 0;
+            let sumPad = 0;
+            const unitBreakdown: Record<string, { nonKap: number, pad: number }> = {};
+
+            units.forEach(u => {
+                const p = u.perhitunganPegawai.find(x => x.pegawaiId === b.id);
+                if (p) {
+                    sumNK += p.jaspelProfesiNonKap;
+                    sumPad += p.jaspelProfesiPad;
+                    unitBreakdown[u.unitNama] = {
+                        nonKap: p.jaspelProfesiNonKap,
+                        pad: p.jaspelProfesiPad
+                    };
+                } else {
+                    unitBreakdown[u.unitNama] = { nonKap: 0, pad: 0 };
+                }
+            });
+
+            const jaspelNK = ov?.print40NonKapJumlah ?? sumNK;
+            const pphPercentNK = b.golongan?.startsWith('IV') ? 15 : b.golongan?.startsWith('III') ? 5 : 0;
+            const pphNK = ov?.print40NonKapPphNominal ?? (jaspelNK * (pphPercentNK / 100));
+            const bersihNK = ov?.print40NonKapBersih ?? (jaspelNK - pphNK);
+
+            const jaspelPad = ov?.print40PadJumlah ?? sumPad;
+            const pphPercentPad = b.golongan?.startsWith('IV') ? 15 : b.golongan?.startsWith('III') ? 5 : 0;
+            const pphPad = ov?.print40PadPphNominal ?? (jaspelPad * (pphPercentPad / 100));
+            const bersihPad = ov?.print40PadBersih ?? (jaspelPad - pphPad);
+
+            return {
+                id: b.id,
+                nama: b.nama,
+                golongan: b.golongan,
+                jaspelNonKap: jaspelNK,
+                pphNonKap: pphNK,
+                bersihNonKap: bersihNK,
+                jaspelPadMurni: jaspelPad,
+                pphPadMurni: pphPad,
+                bersihPadMurni: bersihPad,
+                unitBreakdown,
+                isOverride: !!ov
+            };
+        });
+      } catch (e) {
+        console.error("Error in calculatePrint40Langsung", e);
+        return [];
+      }
+  }
+
+  async calculateRekapan(periode: string) {
+      const p60 = await this.calculatePrint60TidakLangsung(periode);
+      const p40 = await this.calculatePrint40Langsung(periode);
+      const overrides = await this.pegawaiRepo.getJaspelDistribusi(periode);
+      const listPegawai = await this.pegawaiRepo.findAll();
+
+      return listPegawai.map(p => {
+          const b60 = p60.find(x => x.id === p.id);
+          const b40 = p40.find(x => x.id === p.id);
+          const ov = overrides.find(o => o.pegawaiId === p.id);
+
+          const tlNK = b60?.jaspelNonKap || 0;
+          const tlPad = b60?.jaspelPadMurni || 0;
+          const totalTL = tlNK + tlPad;
+
+          const lNK = b40?.jaspelNonKap || 0;
+          const lPad = b40?.jaspelPadMurni || 0;
+          const totalL = lNK + lPad;
+
+          const totalJaspel = ov?.rekapTotalJaspel ?? (totalTL + totalL);
+          const pphPercent = ov?.rekapPphPersen ?? (p.golongan === 'IV' ? 15 : p.golongan === 'III' ? 5 : 0);
+          const pphNominal = ov?.rekapPphNominal ?? (totalJaspel * (pphPercent / 100));
+          const takeHomePay = ov?.rekapTakeHomePay ?? (totalJaspel - pphNominal);
+
+          return {
+              pegawaiId: p.id,
+              nama: p.nama,
+              golongan: p.golongan,
+              tlNonKap: tlNK,
+              tlPad,
+              totalTL,
+              lgsgNonKap: lNK,
+              lgsgPad: lPad,
+              totalL,
+              totalJaspel,
+              pphPercent,
+              pphNominal,
+              takeHomePay,
+              isOverride: !!ov
+          };
+      });
+  }
+
   async calculateUnitPelayanan(periode: string) {
-    const pendapatanUnit = await this.keuanganRepo.getPendapatanUnit(periode);
+    const keuDetail = await this.keuanganRepo.getKeuanganDetail(periode);
     const bobotList = await this.calculateBobotKapitasi(periode);
     const kinerjaPegawai = await this.keuanganRepo.getKinerjaPegawai(periode);
     const units = await this.keuanganRepo.getUnits();
     
-    const resultByUnit = pendapatanUnit.map(pu => {
-      const unitVal = units.find(u => u.id === pu.unitId);
-      const unitNama = unitVal ? unitVal.nama : 'Unknown';
-
-      const tidakLangsungNonKapitasi = pu.jumlahNonKapitasi * 0.6;
-      const langsungNonKapitasi = pu.jumlahNonKapitasi * 0.4;
+    const results = [];
+    for (const u of units) {
+      const details = keuDetail.filter(d => d.namaLayanan === u.nama);
       
-      const tidakLangsungPadRanap = pu.padRanap * 0.6;
-      const langsungPadRanap = pu.padRanap * 0.4;
+      const sumBludNK = details.filter(d => d.jenisPendapatan === 'Non Kapitasi').reduce((a, b) => a + b.jumlahBlud, 0);
+      const sumBludPad = details.filter(d => d.jenisPendapatan === 'PAD Murni').reduce((a, b) => a + b.jumlahBlud, 0);
+      
+      const langsungNonKapitasi = details.filter(d => d.jenisPendapatan === 'Non Kapitasi').reduce((a, b) => a + b.langsung, 0);
+      const langsungPadRanap = details.filter(d => d.jenisPendapatan === 'PAD Murni').reduce((a, b) => a + b.langsung, 0);
 
-      // Map kinerja for this specific unit
-      const kinerjaDiUnit = kinerjaPegawai.filter(k => k.unitId === pu.unitId).map(k => {
-        const bobotPegawai = bobotList.find(b => b.id === k.pegawaiId)?.bobot || 0;
-        const adjustedIndividu = bobotPegawai * k.jumlahTindakan;
-        return {
-          ...k,
-          bobotPegawai,
-          adjustedIndividu
+      const kinerjaDiUnit = kinerjaPegawai.filter(k => k.unitId === u.id).map(k => {
+        const bobotPegawai = bobotList.find(b => b.id === k.pegawaiId)?.bobotNonKapitasi || 0;
+        return { ...k, bobotPegawai };
+      });
+
+      // 1. Fetch Role-based Pagu (Percentages) for this unit
+      const paguData = await this.keuanganRepo.getPaguUnitPeran(u.id, periode);
+      const allUnitActions = await this.keuanganRepo.getKinerjaTindakanPeran(u.id);
+
+      const roleBuckets: Record<string, { nk: number; pad: number }> = {};
+      const roleTotalAdjWeight: Record<string, number> = {};
+
+      paguData.forEach((p) => {
+        roleBuckets[p.peranKey] = {
+          nk: (p.paguNonKap / 100) * langsungNonKapitasi,
+          pad: (p.paguPadMurni / 100) * langsungPadRanap,
         };
       });
 
-      // Calculate totals per percent peran in unit
-      // This part group by persentaseBobotPeran basically to find "Total Adjusted Profesi di Unit tsb"
-      const totalAdjustedPerPeran: Record<string, number> = {};
-      kinerjaDiUnit.forEach(k => {
-        totalAdjustedPerPeran[k.persentaseBobotPeran.toString()] = (totalAdjustedPerPeran[k.persentaseBobotPeran.toString()] || 0) + k.adjustedIndividu;
+      // Calculate Total Adjusted Weight for each Role Bucket
+      allUnitActions.forEach((a) => {
+        const emp = kinerjaDiUnit.find((k) => k.id === a.kinerjaPegawaiId);
+        if (emp) {
+          // If a manual adjusted value is present in the DB, use it.
+          // Otherwise, apply the new formulas.
+          let adjusted = a.adjusted;
+          
+          if (adjusted === null || adjusted === undefined) {
+             const isAdminRole = a.peranKey === 'pengelola' || a.peranKey === 'manajemen_poned';
+             if (isAdminRole) {
+                adjusted = a.jumlahTindakan * 10;
+             } else {
+                adjusted = (emp.bobotPegawai || 0) * a.jumlahTindakan;
+             }
+          }
+
+          // Store for subsequent distribution step
+          (a as any).finalAdjusted = adjusted;
+          roleTotalAdjWeight[a.peranKey] = (roleTotalAdjWeight[a.peranKey] || 0) + adjusted;
+        }
       });
 
-      const perhitunganPegawai = kinerjaDiUnit.map(k => {
-        // Alokasi Profesi for Non Kapitasi
-        const danaAlokasiProfesiNonKap = langsungNonKapitasi * k.persentaseBobotPeran;
-        const totalAdjusted = totalAdjustedPerPeran[k.persentaseBobotPeran.toString()] || 1; 
-        const jaspelProfesiNonKap = (k.adjustedIndividu / totalAdjusted) * danaAlokasiProfesiNonKap;
+      // Distribute each bucket to employees
+      const employeeEarnings: Record<string, { nk: number; pad: number }> = {};
+      allUnitActions.forEach((a) => {
+        const emp = kinerjaDiUnit.find((k) => k.id === a.kinerjaPegawaiId);
+        if (emp && roleBuckets[a.peranKey]) {
+          const finalAdjusted = (a as any).finalAdjusted || 0;
+          const totalAdjWeight = roleTotalAdjWeight[a.peranKey] || 1;
+          
+          const nkShare = (finalAdjusted / totalAdjWeight) * roleBuckets[a.peranKey].nk;
+          const padShare = (finalAdjusted / totalAdjWeight) * roleBuckets[a.peranKey].pad;
 
-        // Alokasi Profesi for PAD Murni/Ranap
-        const danaAlokasiProfesiPad = langsungPadRanap * k.persentaseBobotPeran;
-        const jaspelProfesiPad = (k.adjustedIndividu / totalAdjusted) * danaAlokasiProfesiPad;
+          if (!employeeEarnings[emp.pegawaiId]) {
+            employeeEarnings[emp.pegawaiId] = { nk: 0, pad: 0 };
+          }
+          employeeEarnings[emp.pegawaiId].nk += nkShare;
+          employeeEarnings[emp.pegawaiId].pad += padShare;
+        }
+      });
 
+      const perhitunganPegawai = kinerjaDiUnit.map((k) => {
+        const earnings = employeeEarnings[k.pegawaiId] || { nk: 0, pad: 0 };
         return {
           pegawaiId: k.pegawaiId,
-          jaspelProfesiNonKap,
-          jaspelProfesiPad
+          jaspelProfesiNonKap: earnings.nk,
+          jaspelProfesiPad: earnings.pad,
         };
       });
 
-      return {
-        unitId: pu.unitId,
-        unitNama,
-        jumlahNonKapitasi: pu.jumlahNonKapitasi,
-        padRanap: pu.padRanap,
-        tidakLangsungNonKapitasi,
+      results.push({
+        unitId: u.id,
+        unitNama: u.nama,
+        jumlahNonKapitasi: sumBludNK,
+        padRanap: sumBludPad,
         langsungNonKapitasi,
-        tidakLangsungPadRanap,
         langsungPadRanap,
         perhitunganPegawai
-      };
+      });
+    }
+    return results;
+  }
+
+  async getUnitFinancialSummary(unitName: string, periode: string) {
+    const detail = await this.keuanganRepo.getKeuanganDetail(periode);
+    const unitDetails = detail.filter(d => d.namaLayanan?.toLowerCase() === unitName.toLowerCase());
+
+    const summary = {
+      nonKapitasi: { total: 0, tidakLangsung: 0, langsung: 0 },
+      padMurni: { total: 0, tidakLangsung: 0, langsung: 0 }
+    };
+
+    unitDetails.forEach(d => {
+      if (d.jenisPendapatan === 'Non Kapitasi') {
+        summary.nonKapitasi.total += d.jaspel60;
+        summary.nonKapitasi.tidakLangsung += d.tidakLangsung;
+        summary.nonKapitasi.langsung += d.langsung;
+      } else if (d.jenisPendapatan === 'PAD Murni') {
+        summary.padMurni.total += d.jaspel60;
+        summary.padMurni.tidakLangsung += d.tidakLangsung;
+        summary.padMurni.langsung += d.langsung;
+      }
     });
 
-    return resultByUnit;
-  }
-
-  async calculatePrint60TidakLangsung(periode: string) {
-      const bobotList = await this.calculateBobotKapitasi(periode);
-      const dataKeuangan = await this.calculateKeuanganGlobal(periode);
-      const unitPelayanan = await this.calculateUnitPelayanan(periode);
-
-      let totalJaspelNonKapitasi60 = 0;
-      let totalJaspelPadMurni60 = 0;
-      unitPelayanan.forEach(u => {
-          totalJaspelNonKapitasi60 += u.tidakLangsungNonKapitasi;
-          totalJaspelPadMurni60 += u.tidakLangsungPadRanap;
-      });
-
-      const totalBobotSeluruh = bobotList.reduce((acc, curr) => acc + curr.bobot, 0);
-
-      return bobotList.map(b => {
-          // Calculate for both Non Kapitasi and PAD Murni
-          const jaspelNonKap = (b.bobot / (totalBobotSeluruh || 1)) * totalJaspelNonKapitasi60;
-          const jaspelPadMurni = (b.bobot / (totalBobotSeluruh || 1)) * totalJaspelPadMurni60;
-          
-          const getPph = (gol: string) => gol === 'IV' ? 0.15 : gol === 'III' ? 0.05 : 0;
-          const pphPercent = getPph(b.golongan);
-
-          const pphNonKap = jaspelNonKap * pphPercent;
-          const pphPadMurni = jaspelPadMurni * pphPercent;
-
-          return {
-             id: b.id,
-             nama: b.nama,
-             golongan: b.golongan,
-             bobot: b.bobot,
-             jaspelNonKap,
-             pphNonKap,
-             bersihNonKap: jaspelNonKap - pphNonKap,
-             jaspelPadMurni,
-             pphPadMurni,
-             bersihPadMurni: jaspelPadMurni - pphPadMurni,
-          }
-      });
-  }
-
-  async calculateRekapan(periode: string) {
-      // Aggregates both 60% and 40% into the final Rekap pages.
-      const print60 = await this.calculatePrint60TidakLangsung(periode);
-      const units = await this.calculateUnitPelayanan(periode);
-
-      const mappingTotalJaspel40: Record<string, {nonKap: number, padMurni: number}> = {};
-      units.forEach(u => {
-          u.perhitunganPegawai.forEach(p => {
-              if(!mappingTotalJaspel40[p.pegawaiId]) mappingTotalJaspel40[p.pegawaiId] = {nonKap: 0, padMurni: 0};
-              mappingTotalJaspel40[p.pegawaiId].nonKap += p.jaspelProfesiNonKap;
-              mappingTotalJaspel40[p.pegawaiId].padMurni += p.jaspelProfesiPad;
-          })
-      });
-
-      return print60.map(p60 => {
-          const p40 = mappingTotalJaspel40[p60.id] || {nonKap: 0, padMurni: 0};
-          
-          const jumlahTL = p60.jaspelNonKap + p60.jaspelPadMurni;
-          const jumlahLangsung = p40.nonKap + p40.padMurni;
-          const totalJaspel = jumlahTL + jumlahLangsung;
-
-          const pphPercent = p60.golongan === 'IV' ? 0.15 : p60.golongan === 'III' ? 0.05 : 0;
-          const pph = totalJaspel * pphPercent;
-          const jumlahBersih = totalJaspel - pph;
-
-          return {
-              pegawaiId: p60.id,
-              nama: p60.nama,
-              golongan: p60.golongan,
-              tlNonKap: p60.jaspelNonKap,
-              tlPad: p60.jaspelPadMurni,
-              jumlahTL,
-              lgsgNonKap: p40.nonKap,
-              lgsgPad: p40.padMurni,
-              jumlahLangsung,
-              totalJaspel,
-              pphPercent,
-              pph,
-              jumlahBersih
-          }
-      });
+    return summary;
   }
 }
-

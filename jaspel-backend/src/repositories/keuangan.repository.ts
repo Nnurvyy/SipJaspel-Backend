@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { keuangan, pendapatanUnit, unitPelayanan, kinerjaPegawai } from "../db/schema";
+import { eq, and } from "drizzle-orm";
+import { keuangan, pendapatanUnit, unitPelayanan, kinerjaPegawai, keuanganDetail, kinerjaTindakanPeran, paguUnitPeran } from "../db/schema";
 import { DbClient } from "../db";
 
 export class KeuanganRepository {
@@ -20,5 +20,17 @@ export class KeuanganRepository {
 
   async getKinerjaPegawai(periode: string) {
     return this.db.select().from(kinerjaPegawai).where(eq(kinerjaPegawai.periode, periode));
+  }
+
+  async getKeuanganDetail(periode: string) {
+    return this.db.select().from(keuanganDetail).where(eq(keuanganDetail.periode, periode));
+  }
+
+  async getKinerjaTindakanPeran(unitId: string) {
+    return this.db.select().from(kinerjaTindakanPeran).where(eq(kinerjaTindakanPeran.unitId, unitId));
+  }
+
+  async getPaguUnitPeran(unitId: string, periode: string) {
+    return this.db.select().from(paguUnitPeran).where(and(eq(paguUnitPeran.unitId, unitId), eq(paguUnitPeran.periode, periode)));
   }
 }

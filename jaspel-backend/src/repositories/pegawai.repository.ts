@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { pegawai, kehadiran, kinerjaPegawai } from "../db/schema";
+import { pegawai, kehadiran, kinerjaPegawai, strukturOrganisasi, jaspelDistribusi } from "../db/schema";
 import { DbClient } from "../db";
 
 export class PegawaiRepository {
@@ -23,8 +23,16 @@ export class PegawaiRepository {
   }
 
   async create(data: typeof pegawai.$inferInsert) {
-    await this.db.insert(pegawai).values(data);
-    return data;
+    const finalData = {
+      ...data,
+      poinTanggungJawab: data.poinTanggungJawab ?? 0,
+      poinKetenagaan: data.poinKetenagaan ?? 0,
+      poinRangkapTugas: data.poinRangkapTugas ?? 0,
+      poinMasaKerja: data.poinMasaKerja ?? 0,
+      pphPersen: data.pphPersen ?? 0,
+    };
+    await this.db.insert(pegawai).values(finalData);
+    return finalData;
   }
 
   async update(id: string, data: Partial<typeof pegawai.$inferInsert>) {
@@ -40,5 +48,13 @@ export class PegawaiRepository {
     // Delete the pegawai
     await this.db.delete(pegawai).where(eq(pegawai.id, id));
     return { success: true };
+  }
+
+  async getStruktur() {
+    return this.db.select().from(strukturOrganisasi);
+  }
+
+  async getJaspelDistribusi(periode: string) {
+    return this.db.select().from(jaspelDistribusi).where(eq(jaspelDistribusi.periode, periode));
   }
 }
