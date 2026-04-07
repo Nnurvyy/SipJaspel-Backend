@@ -12,7 +12,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 function getPoinJabatanUnit(jabatan: string | null | undefined): number {
   if (!jabatan) return 0;
   if (jabatan === "PJ") return 3;
-  if (jabatan === "Koordinator") return 2;
+  if (jabatan === "Koordinator" || jabatan === "Koordinator Pelayanan") return 2;
   if (jabatan === "Tidak memiliki jabatan struktural") return 1;
   return 0;
 }

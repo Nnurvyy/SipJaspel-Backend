@@ -1,5 +1,5 @@
 import { eq, and, asc, sql } from "drizzle-orm";
-import { pegawai, kehadiran, kinerjaPegawai, strukturOrganisasi, jaspelDistribusi } from "../db/schema";
+import { pegawai, kehadiran, kinerjaPegawai, strukturOrganisasi, jaspelDistribusi, bobotStaff } from "../db/schema";
 import { DbClient } from "../db";
 import { handleReordering } from "../utils/reorder";
 
@@ -75,5 +75,9 @@ export class PegawaiRepository {
 
   async getJaspelDistribusi(periode: string) {
     return this.db.select().from(jaspelDistribusi).where(eq(jaspelDistribusi.periode, periode));
+  }
+
+  async getAllBobotStaff() {
+    return this.db.select().from(bobotStaff);
   }
 }

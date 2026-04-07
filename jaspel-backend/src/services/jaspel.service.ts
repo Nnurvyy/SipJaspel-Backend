@@ -7,6 +7,24 @@ export class JaspelService {
     private pegawaiRepo: PegawaiRepository
   ) {}
 
+  private getPoinJabatanUnit(jabatan: string | null | undefined): number {
+    if (!jabatan) return 0;
+    if (jabatan === "PJ") return 3;
+    if (jabatan === "Koordinator" || jabatan === "Koordinator Pelayanan") return 2;
+    if (jabatan === "Tidak memiliki jabatan struktural") return 1;
+    return 0;
+  }
+
+  private getPoinRisiko(risiko: string | null | undefined): number {
+    if (!risiko) return 0;
+    if (risiko === "Sangat Tinggi") return 5;
+    if (risiko === "Tinggi") return 4;
+    if (risiko === "Sedang") return 3;
+    if (risiko === "Rendah") return 2;
+    if (risiko === "Sangat Rendah") return 1;
+    return 0;
+  }
+
   async calculateKeuanganGlobal(periode: string) {
     const detail = await this.keuanganRepo.getKeuanganDetail(periode);
     
@@ -266,6 +284,7 @@ export class JaspelService {
     const bobotList = await this.calculateBobotKapitasi(periode);
     const kinerjaPegawai = await this.keuanganRepo.getKinerjaPegawai(periode);
     const units = await this.keuanganRepo.getUnits();
+    const bobotStaffData = await this.pegawaiRepo.getAllBobotStaff();
     
     const results = [];
     for (const u of units) {
@@ -283,7 +302,87 @@ export class JaspelService {
       });
 
       // 1. Fetch Role-based Pagu (Percentages) for this unit
-      const paguData = await this.keuanganRepo.getPaguUnitPeran(u.id, periode);
+      let paguData = await this.keuanganRepo.getPaguUnitPeran(u.id, periode);
+
+      const UNIT_CONFIGS: Record<string, any[]> = {
+        'ugd': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 20, paguPadMurni: 20 },
+            { key: 'perawat', label: 'Perawat', paguNonKap: 70, paguPadMurni: 70 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'one day care': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 30, paguPadMurni: 30 },
+            { key: 'perawat', label: 'Perawat', paguNonKap: 60, paguPadMurni: 60 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'poned': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 10, paguPadMurni: 10 },
+            { key: 'bidan_jaga', label: 'Bidan Jaga', paguNonKap: 55, paguPadMurni: 55 },
+            { key: 'bidan_asal_bulin', label: 'Bidan Asal Bulin', paguNonKap: 5, paguPadMurni: 5 },
+            { key: 'pendamping_rujukan', label: 'Pendamping Rujukan', paguNonKap: 5, paguPadMurni: 5 },
+            { key: 'penolong_persalinan', label: 'Penolong Persalinan', paguNonKap: 10, paguPadMurni: 10 },
+            { key: 'manajemen_poned', label: 'Manajemen PONED', paguNonKap: 5, paguPadMurni: 5 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'konseling': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 30, paguPadMurni: 30 },
+            { key: 'petugas', label: 'Petugas Konseling', paguNonKap: 60, paguPadMurni: 60 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'haji': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 30, paguPadMurni: 30 },
+            { key: 'perawat_bidan', label: 'Perawat/Bidan', paguNonKap: 60, paguPadMurni: 60 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'kia': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 30, paguPadMurni: 30 },
+            { key: 'perawat_bidan', label: 'Perawat/Bidan', paguNonKap: 60, paguPadMurni: 60 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'usg': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 35, paguPadMurni: 35 },
+            { key: 'perawat_bidan', label: 'Perawat/Bidan', paguNonKap: 55, paguPadMurni: 55 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'kb': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 30, paguPadMurni: 30 },
+            { key: 'perawat_bidan', label: 'Perawat/Bidan', paguNonKap: 60, paguPadMurni: 60 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'lab': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 20, paguPadMurni: 20 },
+            { key: 'atlm', label: 'ATLM', paguNonKap: 70, paguPadMurni: 70 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'poli umum': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 30, paguPadMurni: 30 },
+            { key: 'perawat', label: 'Perawat', paguNonKap: 60, paguPadMurni: 60 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'gigi': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 50, paguPadMurni: 50 },
+            { key: 'perawat', label: 'Perawat Gigi', paguNonKap: 40, paguPadMurni: 40 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'poli gigi': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 50, paguPadMurni: 50 },
+            { key: 'perawat', label: 'Perawat Gigi', paguNonKap: 40, paguPadMurni: 40 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'ambulans': [
+            { key: 'perawat_bidan', label: 'Perawat/Bidan', paguNonKap: 50, paguPadMurni: 50 },
+            { key: 'pengemudi', label: 'Pengemudi', paguNonKap: 40, paguPadMurni: 40 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ]
+      };
+
+      if (paguData.length === 0) {
+          const defaults = UNIT_CONFIGS[u.nama.toLowerCase().trim()] || [];
+          paguData = defaults.map(dc => ({
+              id: 'tmp', unitId: u.id, periode: periode, peranKey: dc.key, paguNonKap: dc.paguNonKap, paguPadMurni: dc.paguPadMurni
+          }));
+      }
+
       const allUnitActions = await this.keuanganRepo.getKinerjaTindakanPeran(u.id);
 
       const roleBuckets: Record<string, { nk: number; pad: number }> = {};
@@ -320,7 +419,7 @@ export class JaspelService {
       });
 
       // Distribute each bucket to employees
-      const employeeEarnings: Record<string, { nk: number; pad: number }> = {};
+      const employeeEarnings: Record<string, { nk: number; pad: number; roles: Record<string, { tindakan: number; adjusted: number; jaspelNK: number; jaspelPad: number }> }> = {};
       allUnitActions.forEach((a) => {
         const emp = kinerjaDiUnit.find((k) => k.id === a.kinerjaPegawaiId);
         if (emp && roleBuckets[a.peranKey]) {
@@ -331,19 +430,29 @@ export class JaspelService {
           const padShare = (finalAdjusted / totalAdjWeight) * roleBuckets[a.peranKey].pad;
 
           if (!employeeEarnings[emp.pegawaiId]) {
-            employeeEarnings[emp.pegawaiId] = { nk: 0, pad: 0 };
+            employeeEarnings[emp.pegawaiId] = { nk: 0, pad: 0, roles: {} };
           }
           employeeEarnings[emp.pegawaiId].nk += nkShare;
           employeeEarnings[emp.pegawaiId].pad += padShare;
+          employeeEarnings[emp.pegawaiId].roles[a.peranKey] = {
+             tindakan: a.jumlahTindakan,
+             adjusted: finalAdjusted,
+             jaspelNK: nkShare,
+             jaspelPad: padShare
+          };
         }
       });
 
-      const perhitunganPegawai = kinerjaDiUnit.map((k) => {
-        const earnings = employeeEarnings[k.pegawaiId] || { nk: 0, pad: 0 };
+      const perhitunganPegawai = bobotList.map((b) => {
+        const earnings = employeeEarnings[b.id] || { nk: 0, pad: 0, roles: {} };
+        const stf = bobotStaffData.find(st => st.pegawaiId === b.id);
+        const calcBobotMaster = this.getPoinJabatanUnit(stf?.jabatanUnit) + this.getPoinRisiko(stf?.risiko);
         return {
-          pegawaiId: k.pegawaiId,
+          pegawaiId: b.id,
+          bobotPegawai: calcBobotMaster || 0,
           jaspelProfesiNonKap: earnings.nk,
           jaspelProfesiPad: earnings.pad,
+          roles: earnings.roles
         };
       });
 
@@ -354,6 +463,8 @@ export class JaspelService {
         padRanap: sumBludPad,
         langsungNonKapitasi,
         langsungPadRanap,
+        paguData,
+        roleBuckets,
         perhitunganPegawai
       });
     }
