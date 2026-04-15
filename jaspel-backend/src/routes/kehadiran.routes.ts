@@ -13,7 +13,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 // GET all kehadiran for a periode with auto-calc and overrides
 app.get("/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   
@@ -40,7 +40,7 @@ const updateSchema = z.object({
 });
 
 app.put("/:periode", zValidator("json", updateSchema), async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const body = c.req.valid("json");
   const db = getDb(c.env.DB);
   

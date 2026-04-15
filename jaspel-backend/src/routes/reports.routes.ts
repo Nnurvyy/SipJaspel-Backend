@@ -8,7 +8,7 @@ import { Bindings } from "../utils/types";
 const app = new Hono<{ Bindings: Bindings }>();
 
 app.get("/keuangan/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   
@@ -17,28 +17,28 @@ app.get("/keuangan/:periode", async (c) => {
 });
 
 app.get("/bobot-kapitasi/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   return c.json(await service.calculateBobotKapitasi(periode));
 });
 
 app.get("/unit-pelayanan/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   return c.json(await service.calculateUnitPelayanan(periode));
 });
 
 app.get("/print-60/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   return c.json(await service.calculatePrint60TidakLangsung(periode));
 });
 
 app.get("/rekap/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   return c.json(await service.calculateRekapan(periode));

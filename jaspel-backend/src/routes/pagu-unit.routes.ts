@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { getDb } from "../db";
-import { paguUnitPeran } from "../db/schema";
+import { paguUnitPeran, unitPelayanan } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { Bindings } from "../utils/types";
 
@@ -10,11 +10,20 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 // GET /api/pagu-unit/:unitKey/:periode — Ambil pagu per peran untuk unit dan periode tertentu
 app.get("/:unitKey/:periode", async (c) => {
-  const { unitKey, periode } = c.req.param();
+  const { unitKey } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
 
-  // unitId bisa format 'unit_ugd' atau 'ugd'
-  const unitId = unitKey.startsWith("unit_") ? unitKey : `unit_${unitKey}`;
+  // Cari unit (support slugs and different ID formats)
+  const allUnits = await db.select().from(unitPelayanan);
+  const unit = allUnits.find(
+    (u) =>
+      u.id === `unit_${unitKey}` ||
+      u.id === unitKey ||
+      u.nama.toLowerCase().replace(/\s+/g, "-") === unitKey
+  );
+
+  const unitId = unit?.id || (unitKey.startsWith("unit_") ? unitKey : `unit_${unitKey}`);
 
   const rows = await db
     .select()
@@ -47,11 +56,21 @@ const upsertSchema = z.record(
 );
 
 app.put("/:unitKey/:periode", zValidator("json", upsertSchema), async (c) => {
-  const { unitKey, periode } = c.req.param();
+  const { unitKey } = c.req.param();
+  const periode = "2026-01";
   const body = c.req.valid("json");
   const db = getDb(c.env.DB);
 
-  const unitId = unitKey.startsWith("unit_") ? unitKey : `unit_${unitKey}`;
+  // Cari unit
+  const allUnits = await db.select().from(unitPelayanan);
+  const unit = allUnits.find(
+    (u) =>
+      u.id === `unit_${unitKey}` ||
+      u.id === unitKey ||
+      u.nama.toLowerCase().replace(/\s+/g, "-") === unitKey
+  );
+
+  const unitId = unit?.id || (unitKey.startsWith("unit_") ? unitKey : `unit_${unitKey}`);
 
   for (const [peranKey, values] of Object.entries(body)) {
     const existing = await db

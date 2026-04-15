@@ -13,35 +13,36 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 // GET reports
 app.get("/print-60/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   return c.json(await service.calculatePrint60TidakLangsung(periode));
 });
 
 app.get("/print-40/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   return c.json(await service.calculatePrint40Langsung(periode));
 });
 
 app.get("/rekap/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   return c.json(await service.calculateRekapan(periode));
 });
 
 app.get("/unit-summary/:unitName/:periode", async (c) => {
-  const { unitName, periode } = c.req.param();
+  const { unitName } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   return c.json(await service.getUnitFinancialSummary(unitName, periode));
 });
 
 app.get("/dashboard-summary/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
   return c.json(await service.getDashboardSummary(periode));
@@ -72,7 +73,7 @@ const updateSchema = z.object({
 });
 
 app.put("/:periode", zValidator("json", updateSchema), async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const body = c.req.valid("json");
   const db = getDb(c.env.DB);
   

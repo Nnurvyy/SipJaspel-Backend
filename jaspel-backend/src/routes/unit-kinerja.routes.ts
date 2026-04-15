@@ -37,7 +37,8 @@ function getPoinRisiko(risiko: string | null | undefined): number {
 // GET /api/unit-kinerja/:unitKey/:periode
 // Kembalikan semua pegawai + kinerja tindakan per peran (normalized) + bobot dari master bobot_staff
 app.get("/:unitKey/:periode", async (c) => {
-  const { unitKey, periode } = c.req.param();
+  const { unitKey } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
 
   // Cari unit
@@ -124,7 +125,7 @@ const updateSchema = z.object({
 });
 
 app.put("/:periode", zValidator("json", updateSchema), async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const body = c.req.valid("json");
   const db = getDb(c.env.DB);
 

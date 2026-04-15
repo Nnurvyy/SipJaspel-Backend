@@ -7,15 +7,15 @@
     {
       "binding": "DB",
       "database_name": "jaspel-db",
-      "database_id": "local-db",
+      "database_id": "d2a7c947-2142-4e3b-ad93-3dfd66d9df8d",
       "migrations_dir": "drizzle"
     }
   ],
-  // "ai": {
-  //   "binding": "AI"
-  // },
-  // "observability": {
-  //   "enabled": true,
-  //   "head_sampling_rate": 1
-  // }
+  "ai": {
+    "binding": "AI"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
 }

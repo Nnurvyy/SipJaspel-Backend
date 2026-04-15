@@ -22,7 +22,7 @@ const schema = z.object({
 
 // GET all for a period
 app.get("/:periode", async (c) => {
-  const { periode } = c.req.param();
+  const periode = "2026-01";
   const db = getDb(c.env.DB);
   const data = await db.select().from(keuanganDetail).where(eq(keuanganDetail.periode, periode));
   return c.json(data);
@@ -36,6 +36,7 @@ app.post("/", zValidator("json", schema), async (c) => {
   
   await db.insert(keuanganDetail).values({
     ...body,
+    periode: "2026-01",
     id,
   });
 
@@ -48,7 +49,7 @@ app.put("/:id", zValidator("json", schema.omit({ id: true })), async (c) => {
   const body = c.req.valid("json");
   const db = getDb(c.env.DB);
 
-  await db.update(keuanganDetail).set(body).where(eq(keuanganDetail.id, id));
+  await db.update(keuanganDetail).set({...body, periode: "2026-01"}).where(eq(keuanganDetail.id, id));
   return c.json({ success: true });
 });
 

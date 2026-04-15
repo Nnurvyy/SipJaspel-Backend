@@ -53,11 +53,7 @@ export class JaspelService {
   }
 
   private getPphPercent(golongan: string | null | undefined): number {
-    if (!golongan || golongan === '-') return 0;
-    const g = golongan.toUpperCase();
-    if (g.startsWith('IV')) return 15;
-    if (g.startsWith('III')) return 5;
-    return 0;
+    return 2.5;
   }
 
 
@@ -68,12 +64,11 @@ export class JaspelService {
     return listPegawai.map(p => {
       const hadirInfo = p.kehadiran;
 
-      const countInStruktur = struktur.filter(s => s.pegawaiId === p.id).length;
-      let calcPoinTJ = 0;
-      if (countInStruktur === 1) calcPoinTJ = 10;
-      else if (countInStruktur === 2) calcPoinTJ = 20;
-      else if (countInStruktur > 2) calcPoinTJ = 30;
-      const poinTanggungJawab = hadirInfo?.poinTanggungJawab ?? calcPoinTJ;
+      const listStruktur = struktur.filter(s => s.pegawaiId === p.id);
+      const countInStruktur = listStruktur.length;
+      const sumPoinStruktur = listStruktur.reduce((acc, curr) => acc + (curr.poin || 0), 0);
+      
+      const poinTanggungJawab = hadirInfo?.poinTanggungJawab ?? sumPoinStruktur;
 
       const poinKetenagaan = hadirInfo?.poinKetenagaan ?? (p.poinKetenagaan || 0);
       const rangkapTugasAdm = hadirInfo?.rangkapTugasAdm ?? 0;
@@ -106,6 +101,7 @@ export class JaspelService {
         golongan: p.golongan,
         jenisKetenagaan: p.jenisKetenagaan,
         countInStruktur,
+        sumStruktur: sumPoinStruktur,
         poinTanggungJawab,
         poinKetenagaan,
         rangkapTugasAdm,

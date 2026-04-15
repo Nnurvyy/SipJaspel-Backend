@@ -104,6 +104,7 @@ export const strukturOrganisasi = sqliteTable("struktur_organisasi", {
   jabatan: text("jabatan").notNull(),
   pegawaiId: text("pegawai_id"), // FK ke pegawai
   namaPejabat: text("nama_pejabat"), // fallback jika tidak pilih dari pegawai
+  poin: real("poin").notNull().default(0),
   urutan: integer("urutan").default(0),
 });
 

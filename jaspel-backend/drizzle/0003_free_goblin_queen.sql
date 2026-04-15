@@ -1,0 +1,1 @@
+ALTER TABLE `struktur_organisasi` ADD `poin` integer DEFAULT 10;

@@ -39,7 +39,7 @@ export class ExportService {
   }
 
   // --- EXPORT ALL ORCHESTRATOR ---
-  async exportAllToExcel(periode: string): Promise<Buffer> {
+  async exportAllToExcel(dbPeriode: string, displayPeriode: string): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     
     // 1. Fetch all data needed
@@ -48,29 +48,29 @@ export class ExportService {
     
     const pegawaiData = await pegawaiRepo.findAll();
     const bobotStaffMaster = await db.select().from(bobotStaff).all().catch(() => []);
-    const keuanganData = await this.jaspelService.calculateKeuanganGlobal(periode);
+    const keuanganData = await this.jaspelService.calculateKeuanganGlobal(dbPeriode);
     const strukturData = await (this.jaspelService as any).pegawaiRepo.getStruktur();
-    const bobotDistData = await this.jaspelService.calculateBobotKapitasi(periode);
-    const rekapData = await this.jaspelService.calculateRekapan(periode);
-    const unitPelayananData = await this.jaspelService.calculateUnitPelayanan(periode);
-    const print60Data = await this.jaspelService.calculatePrint60TidakLangsung(periode);
-    const print40Data = await this.jaspelService.calculatePrint40Langsung(periode);
+    const bobotDistData = await this.jaspelService.calculateBobotKapitasi(dbPeriode);
+    const rekapData = await this.jaspelService.calculateRekapan(dbPeriode);
+    const unitPelayananData = await this.jaspelService.calculateUnitPelayanan(dbPeriode);
+    const print60Data = await this.jaspelService.calculatePrint60TidakLangsung(dbPeriode);
+    const print40Data = await this.jaspelService.calculatePrint40Langsung(dbPeriode);
 
     // 2. Build Sheets
     this.addDataDasarSheet(workbook, pegawaiData);
     this.addBobotStaffMasterSheet(workbook, pegawaiData, bobotStaffMaster);
     this.addStrukturSheet(workbook, strukturData, pegawaiData);
-    this.addKeuanganSheet(workbook, keuanganData, periode);
-    this.addBobotSheet(workbook, bobotDistData, periode);
-    this.addRekapSheet(workbook, rekapData, periode);
+    this.addKeuanganSheet(workbook, keuanganData, displayPeriode);
+    this.addBobotSheet(workbook, bobotDistData, displayPeriode);
+    this.addRekapSheet(workbook, rekapData, displayPeriode);
     
     // Print 60
-    this.addPrint60Sheet(workbook, print60Data, 'Non Kapitasi', periode, keuanganData);
-    this.addPrint60Sheet(workbook, print60Data, 'PAD Murni', periode, keuanganData);
+    this.addPrint60Sheet(workbook, print60Data, 'Non Kapitasi', displayPeriode, keuanganData);
+    this.addPrint60Sheet(workbook, print60Data, 'PAD Murni', displayPeriode, keuanganData);
     
     // Print 40
-    this.addPrint40Sheet(workbook, print40Data, 'Non Kapitasi', periode, keuanganData);
-    this.addPrint40Sheet(workbook, print40Data, 'PAD Murni', periode, keuanganData);
+    this.addPrint40Sheet(workbook, print40Data, 'Non Kapitasi', displayPeriode, keuanganData);
+    this.addPrint40Sheet(workbook, print40Data, 'PAD Murni', displayPeriode, keuanganData);
     
     const allowedUnits = [
         'ugd', 'one day care', 'poned', 'konseling', 'haji', 
@@ -79,7 +79,7 @@ export class ExportService {
     ];
     for (const unit of unitPelayananData) {
         if (allowedUnits.includes(unit.unitNama.toLowerCase().trim())) {
-            this.addUnitSheet(workbook, unit, periode, bobotDistData);
+            this.addUnitSheet(workbook, unit, displayPeriode, bobotDistData);
         }
     }
 
@@ -261,34 +261,114 @@ export class ExportService {
   }
 
   private addStrukturSheet(workbook: ExcelJS.Workbook, data: any[], allPegawai: any[]) {
-    const sheet = workbook.addWorksheet('Struktur');
-    sheet.mergeCells('A1:C1');
-    sheet.getCell('A1').value = 'STRUKTUR ORGANISASI UPTD PUSKESMAS MAJALENGKA';
-    sheet.getCell('A1').font = { bold: true };
-    sheet.getCell('A1').alignment = { horizontal: 'center' };
+    const sheet = workbook.addWorksheet('PJ dan Koordinator');
 
-    const header = ['Jabatan', ':', 'Nama Pejabat'];
-    const hr = sheet.getRow(3);
-    header.forEach((h, i) => {
-        const cell = hr.getCell(i + 1);
-        cell.value = h;
-        this.applyStandardStyle(cell, '#E2EFDA', true);
+    // Title row 1
+    sheet.mergeCells('A1:I1');
+    const titleCell = sheet.getCell('A1');
+    titleCell.value = 'PENANGGUNG JAWAB DAN KOORDINATOR UPTD PUSKESMAS MAJALENGKA';
+    titleCell.font = { bold: true, size: 12 };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FCE4D6' } };
+
+    // Header row 2 — merged group
+    sheet.mergeCells('C2:H2');
+    const groupCell = sheet.getCell('C2');
+    groupCell.value = 'Penanggung Jawab dan Koordinator';
+    this.applyStandardStyle(groupCell, 'FCE4D6', true, 'center');
+
+    sheet.mergeCells('A2:A3'); // No
+    sheet.mergeCells('B2:B3'); // Nama
+    sheet.mergeCells('I2:I3'); // Jumlah Poin
+
+    // Style merged cells row 2
+    this.applyStandardStyle(sheet.getCell('A2'), 'FCE4D6', true, 'center');
+    this.applyStandardStyle(sheet.getCell('B2'), 'FCE4D6', true, 'center');
+    this.applyStandardStyle(sheet.getCell('I2'), 'FCE4D6', true, 'center');
+
+    sheet.getCell('A2').value = 'No';
+    sheet.getCell('B2').value = 'Nama';
+    sheet.getCell('I2').value = 'Jumlah\nPoin';
+
+    // Header row 3 — sub-columns 1, Poin, 2, Poin, 3, Poin
+    const subHeaders = ['1', 'Poin', '2', 'Poin', '3', 'Poin'];
+    subHeaders.forEach((h, i) => {
+      const cell = sheet.getRow(3).getCell(i + 3); // C3, D3, E3, F3, G3, H3
+      cell.value = h;
+      this.applyStandardStyle(cell, 'FCE4D6', true, 'center');
     });
 
-    data.forEach((item, idx) => {
-       const r = sheet.getRow(idx + 4);
-       const peg = item.pegawaiId ? allPegawai.find(p => p.id === item.pegawaiId) : null;
-       r.getCell(1).value = item.jabatan;
-       r.getCell(2).value = ':';
-       r.getCell(3).value = peg ? peg.nama : (item.namaPejabat || '-');
-       
-       this.applyStandardStyle(r.getCell(1), undefined, false, 'left');
-       this.applyStandardStyle(r.getCell(2), undefined, false, 'center');
-       this.applyStandardStyle(r.getCell(3), undefined, false, 'left');
+    // Group jabatan per pegawai from data (which is already in legacy format)
+    const jabatanByPegawai: Record<string, any[]> = {};
+    for (const item of data) {
+      const key = item.pegawaiId || `_fallback_${item.id}`;
+      if (!jabatanByPegawai[key]) jabatanByPegawai[key] = [];
+      jabatanByPegawai[key].push(item);
+    }
+
+    // Write rows per pegawai
+    allPegawai.forEach((peg: any, idx: number) => {
+      const jabatanList = jabatanByPegawai[peg.id] || [];
+      const j1 = jabatanList[0]?.jabatan || '';
+      const j2 = jabatanList[1]?.jabatan || '';
+      const j3 = jabatanList[2]?.jabatan || '';
+      const p1 = j1 ? 10 : 0;
+      const p2 = j2 ? 10 : 0;
+      const p3 = j3 ? 10 : 0;
+      const total = p1 + p2 + p3;
+
+      const r = sheet.getRow(idx + 4);
+      r.getCell(1).value = idx + 1;       // No
+      r.getCell(2).value = peg.nama;      // Nama
+      r.getCell(3).value = j1;            // Jabatan 1
+      r.getCell(4).value = p1 || '';       // Poin 1
+      r.getCell(5).value = j2;            // Jabatan 2
+      r.getCell(6).value = p2 || '';       // Poin 2
+      r.getCell(7).value = j3;            // Jabatan 3
+      r.getCell(8).value = p3 || '';       // Poin 3
+      r.getCell(9).value = total || '';    // Jumlah Poin
+
+      this.applyStandardStyle(r.getCell(1), undefined, false, 'center');
+      this.applyStandardStyle(r.getCell(2), undefined, false, 'left');
+      for (let i = 3; i <= 9; i++) {
+        this.applyStandardStyle(r.getCell(i), undefined, false, i % 2 === 0 ? 'center' : 'left');
+      }
+
+      // Highlight total poin
+      if (total > 0) {
+        r.getCell(9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DBEAFE' } };
+        r.getCell(9).font = { bold: true };
+      }
     });
 
-    sheet.getColumn(1).width = 40;
-    sheet.getColumn(3).width = 40;
+    // Total row
+    const totalRow = sheet.getRow(allPegawai.length + 4);
+    sheet.mergeCells(allPegawai.length + 4, 1, allPegawai.length + 4, 8);
+    totalRow.getCell(1).value = 'TOTAL POIN';
+    const grandTotal = allPegawai.reduce((sum: number, peg: any) => {
+      const jabatanCount = (jabatanByPegawai[peg.id] || []).length;
+      return sum + Math.min(jabatanCount, 3) * 10;
+    }, 0);
+    totalRow.getCell(9).value = grandTotal;
+    for (let i = 1; i <= 9; i++) {
+      this.applyStandardStyle(totalRow.getCell(i), 'FFF2CC', true, i === 9 ? 'center' : 'right');
+    }
+
+    // Column widths
+    sheet.getColumn(1).width = 6;
+    sheet.getColumn(2).width = 35;
+    sheet.getColumn(3).width = 35;
+    sheet.getColumn(4).width = 8;
+    sheet.getColumn(5).width = 35;
+    sheet.getColumn(6).width = 8;
+    sheet.getColumn(7).width = 35;
+    sheet.getColumn(8).width = 8;
+    sheet.getColumn(9).width = 12;
+
+    // Row heights for header
+    sheet.getRow(1).height = 24;
+    sheet.getRow(2).height = 22;
+    sheet.getRow(3).height = 18;
   }
 
   private addBobotSheet(workbook: ExcelJS.Workbook, data: any[], periode: string) {
@@ -854,10 +934,10 @@ export class ExportService {
       for (let i=4; i<=maxCols; i++) sheet.getColumn(i).width = 15;
   }
 
-  async exportRekapToExcel(periode: string): Promise<Buffer> {
-    const data = await this.jaspelService.calculateRekapan(periode);
+  async exportRekapToExcel(dbPeriode: string, displayPeriode: string): Promise<Buffer> {
+    const data = await this.jaspelService.calculateRekapan(dbPeriode);
     const workbook = new ExcelJS.Workbook();
-    this.addRekapSheet(workbook, data, periode);
+    this.addRekapSheet(workbook, data, displayPeriode);
     return await workbook.xlsx.writeBuffer() as unknown as Buffer;
   }
 }

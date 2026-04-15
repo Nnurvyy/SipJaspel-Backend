@@ -16,8 +16,7 @@ app.get("/rekap/:periode", async (c) => {
   const pegawaiRepo = new PegawaiRepository(db);
   const jaspelService = new JaspelService(keuanganRepo, pegawaiRepo);
   const exportService = new ExportService(jaspelService);
-
-  const buffer = await exportService.exportRekapToExcel(periode);
+  const buffer = await exportService.exportRekapToExcel("2026-01", periode);
 
   c.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   c.header('Content-Disposition', `attachment; filename="Rekap_Jaspel_${periode}.xlsx"`);
@@ -33,8 +32,7 @@ app.get("/all/:periode", async (c) => {
   const pegawaiRepo = new PegawaiRepository(db);
   const jaspelService = new JaspelService(keuanganRepo, pegawaiRepo);
   const exportService = new ExportService(jaspelService);
-
-  const buffer = await exportService.exportAllToExcel(periode);
+  const buffer = await exportService.exportAllToExcel("2026-01", periode);
 
   c.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   c.header('Content-Disposition', `attachment; filename="Jaspel_Majalengka_${periode}.xlsx"`);
