@@ -78,6 +78,7 @@ app.post("/seed", async (c) => {
     { key: "gigimulut", nama: "Gigi dan Mulut" },
     { key: "kebidanan", nama: "Kebidanan" },
     { key: "tindakanrawat", nama: "Tindakan Rawat Inap" },
+    { key: "guladarah", nama: "Gula Darah" },
   ];
   
   const existingUnits = await db.select().from(unitPelayanan);

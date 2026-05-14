@@ -43,12 +43,21 @@ app.get("/:unitKey/:periode", async (c) => {
 
   // Cari unit
   const allUnits = await db.select().from(unitPelayanan);
-  const unit = allUnits.find(
+  let unit = allUnits.find(
     (u) =>
       u.id === `unit_${unitKey}` ||
       u.id === unitKey ||
       u.nama.toLowerCase().replace(/\s+/g, "-") === unitKey
   );
+
+  if (!unit) {
+    const formatNama = (key: string) => key.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const newId = `unit_${unitKey.replace(/-/g, '')}`;
+    const newNama = formatNama(unitKey);
+    
+    await db.insert(unitPelayanan).values({ id: newId, nama: newNama });
+    unit = { id: newId, nama: newNama };
+  }
 
   const listPegawai = await db.select().from(pegawai).orderBy(asc(pegawai.urutan));
   const listBobot = await db.select().from(bobotStaff);

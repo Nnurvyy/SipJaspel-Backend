@@ -13,39 +13,46 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 // GET reports
 app.get("/print-60/:periode", async (c) => {
-  const periode = "2026-01";
+  const dbPeriode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
-  return c.json(await service.calculatePrint60TidakLangsung(periode));
+  return c.json(await service.calculatePrint60TidakLangsung(dbPeriode));
 });
 
 app.get("/print-40/:periode", async (c) => {
-  const periode = "2026-01";
+  const dbPeriode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
-  return c.json(await service.calculatePrint40Langsung(periode));
+  return c.json(await service.calculatePrint40Langsung(dbPeriode));
+});
+
+app.get("/print-lain/:periode", async (c) => {
+  const dbPeriode = "2026-01";
+  const db = getDb(c.env.DB);
+  const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
+  return c.json(await service.calculatePrintLainLain(dbPeriode));
 });
 
 app.get("/rekap/:periode", async (c) => {
-  const periode = "2026-01";
+  const dbPeriode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
-  return c.json(await service.calculateRekapan(periode));
+  return c.json(await service.calculateRekapan(dbPeriode));
 });
 
 app.get("/unit-summary/:unitName/:periode", async (c) => {
   const { unitName } = c.req.param();
-  const periode = "2026-01";
+  const dbPeriode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
-  return c.json(await service.getUnitFinancialSummary(unitName, periode));
+  return c.json(await service.getUnitFinancialSummary(unitName, dbPeriode));
 });
 
 app.get("/dashboard-summary/:periode", async (c) => {
-  const periode = "2026-01";
+  const dbPeriode = "2026-01";
   const db = getDb(c.env.DB);
   const service = new JaspelService(new KeuanganRepository(db), new PegawaiRepository(db));
-  return c.json(await service.getDashboardSummary(periode));
+  return c.json(await service.getDashboardSummary(dbPeriode));
 });
 
 // PUT Save Overrides (for all report pages)
@@ -66,6 +73,9 @@ const updateSchema = z.object({
   print40PadJumlah: z.number().nullable().optional(),
   print40PadPphNominal: z.number().nullable().optional(),
   print40PadBersih: z.number().nullable().optional(),
+  print40LainJumlah: z.number().nullable().optional(),
+  print40LainPphNominal: z.number().nullable().optional(),
+  print40LainBersih: z.number().nullable().optional(),
   rekapTotalJaspel: z.number().nullable().optional(),
   rekapPphPersen: z.number().nullable().optional(),
   rekapPphNominal: z.number().nullable().optional(),
@@ -73,12 +83,12 @@ const updateSchema = z.object({
 });
 
 app.put("/:periode", zValidator("json", updateSchema), async (c) => {
-  const periode = "2026-01";
+  const dbPeriode = "2026-01";
   const body = c.req.valid("json");
   const db = getDb(c.env.DB);
   
   const existing = await db.select().from(jaspelDistribusi).where(
-    and(eq(jaspelDistribusi.pegawaiId, body.pegawaiId), eq(jaspelDistribusi.periode, periode))
+    and(eq(jaspelDistribusi.pegawaiId, body.pegawaiId), eq(jaspelDistribusi.periode, dbPeriode))
   ).limit(1);
   
   const { pegawaiId, ...dataToSet } = body;
@@ -87,8 +97,8 @@ app.put("/:periode", zValidator("json", updateSchema), async (c) => {
     await db.update(jaspelDistribusi).set(dataToSet).where(eq(jaspelDistribusi.id, existing[0].id));
   } else {
     await db.insert(jaspelDistribusi).values({
-      id: "dist_" + body.pegawaiId + "_" + periode,
-      periode,
+      id: "dist_" + body.pegawaiId + "_" + dbPeriode,
+      periode: dbPeriode,
       pegawaiId: body.pegawaiId,
       ...dataToSet
     });
@@ -96,5 +106,6 @@ app.put("/:periode", zValidator("json", updateSchema), async (c) => {
   
   return c.json({ success: true });
 });
+
 
 export default app;

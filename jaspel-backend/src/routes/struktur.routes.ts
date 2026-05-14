@@ -96,47 +96,31 @@ app.put("/row/:pegawaiId", zValidator("json", updateRowSchema), async (c) => {
     { id: body.jabatan3Id, jabatan: body.jabatan3, poin: body.poin3 },
   ];
 
-  // Get existing jabatan for this pegawai, sorted by urutan
-  const existing = await db
-    .select()
-    .from(strukturOrganisasi)
-    .where(eq(strukturOrganisasi.pegawaiId, pegawaiId))
-    .orderBy(asc(strukturOrganisasi.urutan));
+  // 1. Delete ALL existing jabatan for this employee first
+  // This is the safest way to handle "slots" and ensures no ghost/odd records remain.
+  await db.delete(strukturOrganisasi).where(eq(strukturOrganisasi.pegawaiId, pegawaiId));
 
-  for (let i = 0; i < jabatanSlots.length; i++) {
-    const slot = jabatanSlots[i];
-    const existingItem = existing[i];
+  // 2. Prepare and Insert only the valid (non-empty) slots
+  const validSlots = jabatanSlots.filter(s => s.jabatan && s.jabatan.trim());
+  
+  if (validSlots.length > 0) {
+    // Get max urutan globally to keep new items at the end
+    const maxRes = await db
+      .select({ maxVal: sql<number>`MAX(${strukturOrganisasi.urutan})` })
+      .from(strukturOrganisasi)
+      .get();
+    let currentUrutan = (maxRes?.maxVal || 0) + 1;
 
-    if (slot.jabatan && slot.jabatan.trim()) {
-      // Has value — upsert
-      if (existingItem) {
-        // Update existing
-        await db
-          .update(strukturOrganisasi)
-          .set({ jabatan: slot.jabatan.trim(), poin: slot.poin || 0 })
-          .where(eq(strukturOrganisasi.id, existingItem.id));
-      } else {
-        // Create new
-        const newId = `struk_${pegawaiId}_${i + 1}_${Date.now()}`;
-        const maxRes = await db
-          .select({ maxVal: sql<number>`MAX(${strukturOrganisasi.urutan})` })
-          .from(strukturOrganisasi)
-          .get();
-        const newUrutan = (maxRes?.maxVal || 0) + 1;
-        await db.insert(strukturOrganisasi).values({
-          id: newId,
-          jabatan: slot.jabatan.trim(),
-          pegawaiId,
-          namaPejabat: null,
-          poin: slot.poin || 0,
-          urutan: newUrutan,
-        });
-      }
-    } else {
-      // Empty — delete existing if present
-      if (existingItem) {
-        await db.delete(strukturOrganisasi).where(eq(strukturOrganisasi.id, existingItem.id));
-      }
+    for (const slot of validSlots) {
+      const newId = `struk_${pegawaiId}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      await db.insert(strukturOrganisasi).values({
+        id: newId,
+        jabatan: slot.jabatan!.trim(),
+        pegawaiId,
+        namaPejabat: null,
+        poin: slot.poin || 0,
+        urutan: currentUrutan++,
+      });
     }
   }
 

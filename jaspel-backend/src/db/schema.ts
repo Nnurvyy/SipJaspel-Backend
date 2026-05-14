@@ -180,9 +180,25 @@ export const jaspelDistribusi = sqliteTable("jaspel_distribusi", {
   print40PadPphNominal: real("p40_pad_pph_nominal"),
   print40PadBersih: real("p40_pad_bersih"),
 
+  // Print Lain-lain (TCM)
+  print40LainJumlah: real("p40_lain_jumlah"),
+  print40LainPphNominal: real("p40_lain_pph_nominal"),
+  print40LainBersih: real("p40_lain_bersih"),
+
+
   // Rekap Final
   rekapTotalJaspel: real("rekap_total_jaspel"),
   rekapPphPersen: real("rekap_pph_persen"),
   rekapPphNominal: real("rekap_pph_nominal"),
   rekapTakeHomePay: real("rekap_take_home_pay"),
 });
+
+// Tabel khusus TCM (Lain-lain)
+export const tcmStaff = sqliteTable("tcm_staff", {
+  id: text("id").primaryKey(),
+  periode: text("periode").notNull(),
+  pegawaiId: text("pegawai_id").notNull(),
+  persentase: real("persentase").notNull().default(0),
+});
+
+

@@ -11,6 +11,7 @@ import bobotStaffRoutes from './routes/bobot-staff.routes'
 import paguUnitRoutes from './routes/pagu-unit.routes'
 import keuanganDetailRoutes from './routes/keuangan-detail.routes'
 import jaspelDistribusiRoutes from './routes/jaspel-distribusi.routes'
+import tcmStaffRoutes from './routes/tcm-staff.routes'
 import { Bindings } from './utils/types'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -27,6 +28,7 @@ app.route('/api/bobot-staff', bobotStaffRoutes)
 app.route('/api/pagu-unit', paguUnitRoutes)
 app.route('/api/keuangan-detail', keuanganDetailRoutes)
 app.route('/api/jaspel-distribusi', jaspelDistribusiRoutes)
+app.route('/api/tcm-staff', tcmStaffRoutes)
 app.route('/api/export', exportRoutes)
 
 app.get('/', (c) => {

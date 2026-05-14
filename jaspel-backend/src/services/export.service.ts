@@ -38,6 +38,24 @@ export class ExportService {
     return { bulan, tahun };
   }
 
+  private getPoinJabatanUnit(jabatan: string | null | undefined): number {
+    if (!jabatan) return 0;
+    if (jabatan === "PJ") return 3;
+    if (jabatan === "Koordinator" || jabatan === "Koordinator Pelayanan") return 2;
+    if (jabatan === "Tidak memiliki jabatan struktural") return 1;
+    return 0;
+  }
+
+  private getPoinRisiko(risiko: string | null | undefined): number {
+    if (!risiko) return 0;
+    if (risiko === "Sangat Tinggi") return 5;
+    if (risiko === "Tinggi") return 4;
+    if (risiko === "Sedang") return 3;
+    if (risiko === "Rendah") return 2;
+    if (risiko === "Sangat Rendah") return 1;
+    return 0;
+  }
+
   // --- EXPORT ALL ORCHESTRATOR ---
   async exportAllToExcel(dbPeriode: string, displayPeriode: string): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
@@ -55,6 +73,8 @@ export class ExportService {
     const unitPelayananData = await this.jaspelService.calculateUnitPelayanan(dbPeriode);
     const print60Data = await this.jaspelService.calculatePrint60TidakLangsung(dbPeriode);
     const print40Data = await this.jaspelService.calculatePrint40Langsung(dbPeriode);
+    const printLainData = await this.jaspelService.calculatePrintLainLain(dbPeriode);
+
 
     // 2. Build Sheets
     this.addDataDasarSheet(workbook, pegawaiData);
@@ -72,16 +92,23 @@ export class ExportService {
     this.addPrint40Sheet(workbook, print40Data, 'Non Kapitasi', displayPeriode, keuanganData);
     this.addPrint40Sheet(workbook, print40Data, 'PAD Murni', displayPeriode, keuanganData);
     
+    // Print Lain-lain
+    this.addPrintLainSheet(workbook, printLainData, displayPeriode, keuanganData);
+    
     const allowedUnits = [
         'ugd', 'one day care', 'poned', 'konseling', 'haji', 
         'kia', 'usg', 'kb', 'lab', 'poli umum', 'gigi', 'ambulans',
-        'poli gigi'
+        'poli gigi', 'gula darah'
     ];
     for (const unit of unitPelayananData) {
         if (allowedUnits.includes(unit.unitNama.toLowerCase().trim())) {
             this.addUnitSheet(workbook, unit, displayPeriode, bobotDistData);
         }
     }
+
+    // TCM distribution at the end
+    const tcmData = await this.jaspelService.calculateTcmDistribution(dbPeriode);
+    this.addTCMSheet(workbook, tcmData, displayPeriode);
 
     const buffer = await workbook.xlsx.writeBuffer() as unknown as Buffer;
     return buffer;
@@ -152,12 +179,15 @@ export class ExportService {
 
     pegawai.forEach((p, idx) => {
         const b = bobot.find((x: any) => x.pegawaiId === p.id);
+        const poinJabatan = this.getPoinJabatanUnit(b?.jabatanUnit);
+        const poinRisiko = this.getPoinRisiko(b?.risiko);
+        
         const r = sheet.getRow(idx + 4);
         r.getCell(1).value = idx + 1;
         r.getCell(2).value = p.nama;
-        r.getCell(3).value = b ? ((b.poinJabatan || 0) + (b.poinRisiko || 0)) : '-';
+        r.getCell(3).value = poinJabatan + poinRisiko;
         r.getCell(4).value = b?.jabatanUnit || '-';
-        r.getCell(5).value = b?.poinRisiko ?? '-';
+        r.getCell(5).value = poinRisiko;
         r.getCell(6).value = b?.unitKerja || '-';
         r.getCell(7).value = b?.status || '-';
         for(let i=1; i<=7; i++) {
@@ -230,6 +260,7 @@ export class ExportService {
 
     const nonKapItems = data.items.filter((i: any) => i.jenisPendapatan === 'Non Kapitasi');
     const padItems = data.items.filter((i: any) => i.jenisPendapatan === 'PAD Murni');
+    const lainLainItems = data.items.filter((i: any) => i.jenisPendapatan === 'Lain - lain');
 
     let tNKBlud = 0, tNKJaspel = 0, tNKOp = 0, tNKTL = 0, tNKL = 0;
     nonKapItems.forEach((item: any) => {
@@ -249,7 +280,32 @@ export class ExportService {
         printTotalRow('Total PAD Murni', tPADBlud, tPADJaspel, tPADOp, tPADTL, tPADL, '#92D050');
     }
 
-    printTotalRow('Total PAD', data.pendapatan, data.jaspel, data.operasional, data.tidakLangsung, data.langsung, '#FFFF00');
+    let tLainBlud = 0, tLainJaspel = 0, tLainOp = 0;
+    lainLainItems.forEach((item: any) => {
+        tLainBlud += item.jumlahBlud; tLainJaspel += item.jaspel60; tLainOp += item.operasional40;
+        const r = sheet.getRow(currentRow++);
+        r.getCell(1).value = item.jenisPendapatan;
+        r.getCell(2).value = item.namaLayanan;
+        r.getCell(3).value = item.jumlahBlud;
+        r.getCell(4).value = item.jaspel60;
+        r.getCell(5).value = item.operasional40;
+        r.getCell(6).value = '-';
+        r.getCell(7).value = '-';
+        for(let i=1; i<=7; i++) {
+            this.applyStandardStyle(r.getCell(i), undefined, false, i <= 2 ? 'left' : 'right');
+            if(i >= 3 && i <= 5) this.formatCurrency(r.getCell(i));
+        }
+    });
+    if (lainLainItems.length > 0) {
+        printTotalRow('Total Lain-lain', tLainBlud, tLainJaspel, tLainOp, 0, 0, '#92D050');
+        // Fix the row we just printed to show '-' for TL/L
+        const lastRow = sheet.getRow(currentRow - 1);
+        lastRow.getCell(6).value = '-';
+        lastRow.getCell(7).value = '-';
+    }
+
+    printTotalRow('GRAND TOTAL', data.pendapatan, data.jaspel, data.operasional, data.tidakLangsung, data.langsung, '#FFFF00');
+
 
     sheet.getColumn(1).width = 20;
     sheet.getColumn(2).width = 30;
@@ -312,9 +368,9 @@ export class ExportService {
       const j1 = jabatanList[0]?.jabatan || '';
       const j2 = jabatanList[1]?.jabatan || '';
       const j3 = jabatanList[2]?.jabatan || '';
-      const p1 = j1 ? 10 : 0;
-      const p2 = j2 ? 10 : 0;
-      const p3 = j3 ? 10 : 0;
+      const p1 = jabatanList[0]?.poin || 0;
+      const p2 = jabatanList[1]?.poin || 0;
+      const p3 = jabatanList[2]?.poin || 0;
       const total = p1 + p2 + p3;
 
       const r = sheet.getRow(idx + 4);
@@ -346,8 +402,9 @@ export class ExportService {
     sheet.mergeCells(allPegawai.length + 4, 1, allPegawai.length + 4, 8);
     totalRow.getCell(1).value = 'TOTAL POIN';
     const grandTotal = allPegawai.reduce((sum: number, peg: any) => {
-      const jabatanCount = (jabatanByPegawai[peg.id] || []).length;
-      return sum + Math.min(jabatanCount, 3) * 10;
+      const jabatanList = jabatanByPegawai[peg.id] || [];
+      const totalPoinPegawai = jabatanList.reduce((s, j) => s + (j.poin || 0), 0);
+      return sum + totalPoinPegawai;
     }, 0);
     totalRow.getCell(9).value = grandTotal;
     for (let i = 1; i <= 9; i++) {
@@ -432,8 +489,9 @@ export class ExportService {
     sheet.getCell('A1').alignment = { horizontal: 'center' };
 
     const headers = [
-        'No', 'Nama Petugas', 'Non Kapitasi', 'PAD Murni', 'Jumlah Jaspel Tidak Langsung (60%)', 'Non Kapitasi', 'PAD Murni', 'Jumlah Jaspel Langsung (40%)', 'Total Jaspel', 'PPH (%)', 'PPH', 'Jumlah Bersih', 'TTD'
+        'No', 'Nama Petugas', 'Non Kapitasi', 'PAD Murni', 'Jumlah Jaspel Tidak Langsung (60%)', 'Non Kapitasi', 'PAD Murni', 'Jumlah Jaspel Langsung (40%)', 'Lain-lain', 'Total Jaspel', 'PPH (%)', 'PPH', 'Jumlah Bersih', 'TTD'
     ];
+
     const hr = sheet.getRow(3);
     headers.forEach((h, i) => {
         const cell = hr.getCell(i + 1);
@@ -451,16 +509,18 @@ export class ExportService {
         r.getCell(6).value = row.lgsgNonKap;
         r.getCell(7).value = row.lgsgPad;
         r.getCell(8).value = row.totalL;
-        r.getCell(9).value = row.totalJaspel;
-        r.getCell(10).value = row.pphPercent;
-        r.getCell(11).value = row.pphNominal;
-        r.getCell(12).value = row.takeHomePay;
-        r.getCell(13).value = ''; 
+        r.getCell(9).value = row.lainLain;
+        r.getCell(10).value = row.totalJaspel;
+        r.getCell(11).value = row.pphPercent;
+        r.getCell(12).value = row.pphNominal;
+        r.getCell(13).value = row.takeHomePay;
+        r.getCell(14).value = ''; 
 
-        for(let i=1; i<=13; i++) {
-           this.applyStandardStyle(r.getCell(i), undefined, i === 12 || i === 13, i === 2 ? 'left' : (i === 10 ? 'center' : 'right'));
-           if (i >= 3 && i !== 10 && i !== 13) this.formatCurrency(r.getCell(i));
+        for(let i=1; i<=14; i++) {
+           this.applyStandardStyle(r.getCell(i), undefined, i === 13 || i === 14, i === 2 ? 'left' : (i === 11 ? 'center' : 'right'));
+           if (i >= 3 && i !== 11 && i !== 14) this.formatCurrency(r.getCell(i));
         }
+
     });
 
     // Total Row
@@ -472,21 +532,87 @@ export class ExportService {
     totalRow.getCell(6).value = data.reduce((a,b) => a + (b.lgsgNonKap || 0), 0);
     totalRow.getCell(7).value = data.reduce((a,b) => a + (b.lgsgPad || 0), 0);
     totalRow.getCell(8).value = data.reduce((a,b) => a + (b.totalL || 0), 0);
-    totalRow.getCell(9).value = data.reduce((a,b) => a + (b.totalJaspel || 0), 0);
-    totalRow.getCell(11).value = data.reduce((a,b) => a + (b.pphNominal || 0), 0);
-    totalRow.getCell(12).value = data.reduce((a,b) => a + (b.takeHomePay || 0), 0);
-    totalRow.getCell(13).value = '';
+    totalRow.getCell(9).value = data.reduce((a,b) => a + (b.lainLain || 0), 0);
+    totalRow.getCell(10).value = data.reduce((a,b) => a + (b.totalJaspel || 0), 0);
+    totalRow.getCell(12).value = data.reduce((a,b) => a + (b.pphNominal || 0), 0);
+    totalRow.getCell(13).value = data.reduce((a,b) => a + (b.takeHomePay || 0), 0);
+    totalRow.getCell(14).value = '';
 
-    for(let i=1; i<=13; i++) {
+
+    for(let i=1; i<=14; i++) {
         this.applyStandardStyle(totalRow.getCell(i), '#FFF2CC', true, i === 2 ? 'right' : 'right');
-        if (i >= 3 && i !== 10 && i !== 13) this.formatCurrency(totalRow.getCell(i));
+        if (i >= 3 && i !== 11 && i !== 14) this.formatCurrency(totalRow.getCell(i));
+    }
+
+
+    sheet.getColumn(2).width = 35;
+    for(let i=3; i<=14; i++) {
+        if(i !== 11) sheet.getColumn(i).width = 25;
+    }
+  }
+
+  private addPrintLainSheet(workbook: ExcelJS.Workbook, data: any[], periode: string, keuanganData: any) {
+    const sheet = workbook.addWorksheet('Lain-lain');
+    const p = this.parsePeriodeToString(periode);
+    
+    sheet.mergeCells('A1:H1');
+    const titleCell = sheet.getCell('A1');
+    titleCell.value = `DAFTAR PENERIMAAN JASA PELAYANAN LAIN-LAIN (TCM) BULAN ${p.bulan} ${p.tahun}`;
+    titleCell.font = { bold: true };
+    titleCell.alignment = { horizontal: 'center' };
+
+    const tcmEntry = keuanganData.items.find((i: any) => i.jenisPendapatan === 'Lain - lain' && i.namaLayanan?.toLowerCase().includes('tcm'));
+    const totalVal = tcmEntry ? tcmEntry.jaspel60 : 0;
+    
+    sheet.mergeCells('A4:B4');
+    sheet.getCell('A4').value = 'Jumlah Jaspel TCM';
+    this.applyStandardStyle(sheet.getCell('A4'), '#BDD7EE', true, 'left');
+    
+    sheet.getCell('C4').value = totalVal;
+    this.applyStandardStyle(sheet.getCell('C4'), '#FFFF00', true, 'right');
+    this.formatCurrency(sheet.getCell('C4'));
+
+    const headers = ['No', 'Nama Pegawai', 'Gol', 'TCM', 'Jumlah', 'PPh (Rp)', 'Bersih'];
+    const hr = sheet.getRow(6);
+    headers.forEach((h, i) => {
+        const cell = hr.getCell(i + 1);
+        cell.value = h;
+        this.applyStandardStyle(cell, '#BDD7EE', true);
+    });
+
+    data.forEach((row, idx) => {
+        const r = sheet.getRow(idx + 7);
+        r.getCell(1).value = idx + 1;
+        r.getCell(2).value = row.nama;
+        r.getCell(3).value = row.golongan;
+        r.getCell(4).value = row.tcm;
+        r.getCell(5).value = row.jumlah;
+        r.getCell(6).value = row.pphNominal;
+        r.getCell(7).value = row.bersih;
+
+        for(let i=1; i<=7; i++) {
+           this.applyStandardStyle(r.getCell(i), undefined, false, i === 2 ? 'left' : (i === 3 ? 'center' : 'right'));
+           if (i >= 4) this.formatCurrency(r.getCell(i));
+        }
+    });
+
+    const totalRow = sheet.getRow(data.length + 7);
+    totalRow.getCell(2).value = 'JUMLAH / TOTAL';
+    totalRow.getCell(4).value = data.reduce((a,b) => a + (b.tcm || 0), 0);
+    totalRow.getCell(5).value = data.reduce((a,b) => a + (b.jumlah || 0), 0);
+    totalRow.getCell(6).value = data.reduce((a,b) => a + (b.pphNominal || 0), 0);
+    totalRow.getCell(7).value = data.reduce((a,b) => a + (b.bersih || 0), 0);
+
+    for(let i=1; i<=7; i++) {
+        this.applyStandardStyle(totalRow.getCell(i), '#FFF2CC', true, i<=2 ? 'right' : 'right');
+        if (i >= 4) this.formatCurrency(totalRow.getCell(i));
     }
 
     sheet.getColumn(2).width = 35;
-    for(let i=3; i<=13; i++) {
-        if(i !== 10) sheet.getColumn(i).width = 25;
-    }
+    sheet.getColumn(3).width = 20; // Increase width for Gol / TCM Nominal
+    for(let i=4; i<=7; i++) sheet.getColumn(i).width = 20;
   }
+
 
   private addPrint60Sheet(workbook: ExcelJS.Workbook, data: any[], type: 'Non Kapitasi' | 'PAD Murni', periode: string, keuanganData: any) {
     const sheet = workbook.addWorksheet(`Print 60% ${type}`);
@@ -623,7 +749,7 @@ export class ExportService {
        this.applyStandardStyle(row.getCell(3), undefined, false, 'left');
     }
 
-    const unitList = ['UGD', 'One Day Care', 'PONED', 'Konseling', 'Haji', 'KIA', 'USG', 'KB', 'LAB', 'Poli Umum', 'Gigi', 'Ambulans'];
+    const unitList = ['UGD', 'One Day Care', 'PONED', 'Konseling', 'Haji', 'KIA', 'USG', 'KB', 'LAB', 'Poli Umum', 'Gigi', 'Ambulans', 'Gula Darah'];
     const headers = ['No', 'Nama', 'Gol', ...unitList, 'Jumlah', 'Pph', 'Jumlah Bersih'];
     const hr = sheet.getRow(10);
     headers.forEach((h, i) => {
@@ -940,4 +1066,66 @@ export class ExportService {
     this.addRekapSheet(workbook, data, displayPeriode);
     return await workbook.xlsx.writeBuffer() as unknown as Buffer;
   }
+
+  private addTCMSheet(workbook: ExcelJS.Workbook, data: any[], periode: string) {
+    const sheet = workbook.addWorksheet('TCM');
+    const p = this.parsePeriodeToString(periode);
+
+    sheet.mergeCells('A1:E1');
+    const title = sheet.getCell('A1');
+    title.value = `DISTRIBUSI JASPEL TCM PERIODE ${p.bulan} ${p.tahun}`;
+    title.font = { bold: true, size: 12 };
+    title.alignment = { horizontal: 'center' };
+
+    const totalBudget = data.length > 0 ? (data[0].totalRp / (data[0].persentase / 100 || 1)) : 0;
+    
+    sheet.getRow(3).getCell(1).value = 'Total Dana Tersedia (Operasional 40%)';
+    sheet.getRow(3).getCell(3).value = totalBudget;
+    this.applyStandardStyle(sheet.getRow(3).getCell(1), '#E2EFDA', true, 'left');
+    this.applyStandardStyle(sheet.getRow(3).getCell(3), '#FFFF00', true, 'right');
+    this.formatCurrency(sheet.getRow(3).getCell(3));
+
+    const headers = ['No', 'Nama Karyawan', 'Persentase Pembagian (%)', 'Total (Rp)', 'Keterangan'];
+    const hr = sheet.getRow(5);
+    headers.forEach((h, i) => {
+        const cell = hr.getCell(i + 1);
+        cell.value = h;
+        this.applyStandardStyle(cell, '#4472C4', true);
+        cell.font.color = { argb: 'FFFFFF' };
+    });
+
+    data.forEach((row, idx) => {
+        const r = sheet.getRow(idx + 6);
+        r.getCell(1).value = idx + 1;
+        r.getCell(2).value = row.namaKaryawan;
+        r.getCell(3).value = (row.persentase / 100);
+        r.getCell(3).numFmt = '0%';
+        r.getCell(4).value = row.totalRp;
+        r.getCell(5).value = '';
+
+        for(let i=1; i<=5; i++) {
+            this.applyStandardStyle(r.getCell(i), undefined, false, i === 2 ? 'left' : 'center');
+            if(i === 4) this.formatCurrency(r.getCell(i));
+        }
+    });
+
+    const totalRow = sheet.getRow(data.length + 6);
+    totalRow.getCell(2).value = 'TOTAL';
+    const totalPersen = data.reduce((a, b) => a + (b.persentase || 0), 0) / 100;
+    totalRow.getCell(3).value = totalPersen;
+    totalRow.getCell(3).numFmt = '0%';
+    const totalRp = data.reduce((a, b) => a + (b.totalRp || 0), 0);
+    totalRow.getCell(4).value = totalRp;
+
+    for(let i=1; i<=5; i++) {
+        this.applyStandardStyle(totalRow.getCell(i), '#FFF2CC', true, i === 2 ? 'right' : 'center');
+        if(i === 4) this.formatCurrency(totalRow.getCell(i));
+    }
+
+    sheet.getColumn(2).width = 40;
+    sheet.getColumn(3).width = 25;
+    sheet.getColumn(4).width = 25;
+    sheet.getColumn(5).width = 20;
+  }
 }
+

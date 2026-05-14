@@ -1,5 +1,7 @@
 import { KeuanganRepository } from "../repositories/keuangan.repository";
 import { PegawaiRepository } from "../repositories/pegawai.repository";
+import { tcmStaff, pegawai } from "../db/schema";
+import { eq } from "drizzle-orm";
 
 export class JaspelService {
   constructor(
@@ -68,7 +70,7 @@ export class JaspelService {
       const countInStruktur = listStruktur.length;
       const sumPoinStruktur = listStruktur.reduce((acc, curr) => acc + (curr.poin || 0), 0);
       
-      const poinTanggungJawab = hadirInfo?.poinTanggungJawab ?? sumPoinStruktur;
+      const poinTanggungJawab = sumPoinStruktur; // Strictly use the sum from PJ & Koordinator page
 
       const poinKetenagaan = hadirInfo?.poinKetenagaan ?? (p.poinKetenagaan || 0);
       const rangkapTugasAdm = hadirInfo?.rangkapTugasAdm ?? 0;
@@ -235,13 +237,15 @@ export class JaspelService {
   async calculateRekapan(periode: string) {
       const p60 = await this.calculatePrint60TidakLangsung(periode);
       const p40 = await this.calculatePrint40Langsung(periode);
+      const tcm = await this.calculateTcmDistribution(periode);
       const overrides = await this.pegawaiRepo.getJaspelDistribusi(periode);
       const listPegawai = await this.pegawaiRepo.findAll();
 
       return listPegawai.map(p => {
-          const b60 = p60.find(x => x.id === p.id);
-          const b40 = p40.find(x => x.id === p.id);
-          const ov = overrides.find(o => o.pegawaiId === p.id);
+          const b60 = p60.find((x: any) => x.id === p.id);
+          const b40 = p40.find((x: any) => x.id === p.id);
+          const bTcm = tcm.find((x: any) => x.pegawaiId === p.id);
+          const ov = overrides.find((o: any) => o.pegawaiId === p.id);
 
           const tlNK = b60?.jaspelNonKap || 0;
           const tlPad = b60?.jaspelPadMurni || 0;
@@ -251,7 +255,9 @@ export class JaspelService {
           const lPad = b40?.jaspelPadMurni || 0;
           const totalL = lNK + lPad;
 
-          const totalJaspel = ov?.rekapTotalJaspel ?? (totalTL + totalL);
+          const lainLain = bTcm?.totalRp || 0;
+
+          const totalJaspel = ov?.rekapTotalJaspel ?? (totalTL + totalL + lainLain);
           const pphPercent = ov?.rekapPphPersen ?? this.getPphPercent(p.golongan);
           const pphNominal = ov?.rekapPphNominal ?? (totalJaspel * (pphPercent / 100));
           const takeHomePay = ov?.rekapTakeHomePay ?? (totalJaspel - pphNominal);
@@ -266,6 +272,7 @@ export class JaspelService {
               lgsgNonKap: lNK,
               lgsgPad: lPad,
               totalL,
+              lainLain,
               totalJaspel,
               pphPercent,
               pphNominal,
@@ -275,7 +282,37 @@ export class JaspelService {
       });
   }
 
+  async calculatePrintLainLain(periode: string) {
+    const listPegawai = await this.pegawaiRepo.findAll();
+    const tcmData = await this.calculateTcmDistribution(periode);
+    const overrides = await this.pegawaiRepo.getJaspelDistribusi(periode);
+
+    return listPegawai.map(p => {
+      const bTcm = tcmData.find((x: any) => x.pegawaiId === p.id);
+      const ov = overrides.find((o: any) => o.pegawaiId === p.id);
+
+      const tcmRp = bTcm?.totalRp || 0;
+      const jaspelLain = ov?.print40LainJumlah ?? tcmRp;
+      const pphPercent = 2.5; // Always 2.5% as requested
+      const pphNominal = ov?.print40LainPphNominal ?? (jaspelLain * (pphPercent / 100));
+      const bersih = ov?.print40LainBersih ?? (jaspelLain - pphNominal);
+
+      return {
+        id: p.id,
+        nama: p.nama,
+        golongan: p.golongan,
+        tcm: tcmRp,
+        jumlah: jaspelLain,
+        pphPercent,
+        pphNominal,
+        bersih,
+        isOverride: !!ov
+      };
+    });
+  }
+
   async calculateUnitPelayanan(periode: string) {
+
     const keuDetail = await this.keuanganRepo.getKeuanganDetail(periode);
     const bobotList = await this.calculateBobotKapitasi(periode);
     const kinerjaPegawai = await this.keuanganRepo.getKinerjaPegawai(periode);
@@ -368,6 +405,11 @@ export class JaspelService {
         'ambulans': [
             { key: 'perawat_bidan', label: 'Perawat/Bidan', paguNonKap: 50, paguPadMurni: 50 },
             { key: 'pengemudi', label: 'Pengemudi', paguNonKap: 40, paguPadMurni: 40 },
+            { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
+        ],
+        'gula darah': [
+            { key: 'dokter', label: 'Dokter', paguNonKap: 20, paguPadMurni: 20 },
+            { key: 'perawat', label: 'Perawat', paguNonKap: 70, paguPadMurni: 70 },
             { key: 'pengelola', label: 'Pejabat Pengelola BLUD', paguNonKap: 10, paguPadMurni: 10 },
         ]
       };
@@ -528,8 +570,34 @@ export class JaspelService {
     summary.topUnits = Object.entries(unitMap)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
+        .slice(0, 5);
+  
+      return summary;
+    }
+  
+    async calculateTcmDistribution(periode: string) {
+      const keuDetail = await this.keuanganRepo.getKeuanganDetail(periode);
+      const db = (this.keuanganRepo as any).db;
+      
+      const tcmStaffList = await db.select({
+          id: tcmStaff.id,
+          pegawaiId: tcmStaff.pegawaiId,
+          persentase: tcmStaff.persentase,
+          namaKaryawan: pegawai.nama
+      })
+      .from(tcmStaff)
+      .leftJoin(pegawai, eq(tcmStaff.pegawaiId, pegawai.id))
+      .where(eq(tcmStaff.periode, periode));
+      
+      const tcmEntry = keuDetail.find(i => i.jenisPendapatan === 'Lain - lain' && i.namaLayanan?.toLowerCase().includes('tcm'));
+      const totalBudget = tcmEntry ? tcmEntry.jaspel60 : 0;
 
-    return summary;
+  
+      return tcmStaffList.map((s: any) => ({
+        ...s,
+        totalRp: (s.persentase / 100) * totalBudget
+      }));
+    }
+
   }
-}
+
